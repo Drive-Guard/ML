@@ -84,7 +84,7 @@ class Utils:
         
         mar = self.calculate_euclidian_distance(mouth_sup, mouth_inf) / self.calculate_euclidian_distance(mouth_left, mouth_right)
         return mar
-    def extract_euler_angles(matrix_4x4):
+    def extract_euler_angles(self,matrix_4x4):
         R = matrix_4x4[0:3, 0:3]
         proj_matrix = np.hstack((R, np.zeros((3, 1))))
         _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)

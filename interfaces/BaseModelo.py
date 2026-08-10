@@ -24,3 +24,8 @@ class BaseModelo:
     def create_pipeline(self):
         """Cria o pipeline de machine learning"""
         pass
+
+    @abstractmethod
+    def save_model(self):
+        """Salva o modelo de machine learning"""
+        pass

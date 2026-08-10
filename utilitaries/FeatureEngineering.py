@@ -10,6 +10,7 @@ import pandas as pd
 import hashlib
 from collections import deque
 from utilitaries.Utils import Utils
+import os
 
 class FeatureEngineering:
     WINDOW_SIZE: int
@@ -90,7 +91,6 @@ class FeatureEngineering:
         dataset_map = self.create_folder_map(video_path)
         features_data = []
     
-        df = pd.DataFrame(columns=["ear", "mar", "pitch", "yaw", "roll", "label"])
         with FaceLandmarker.create_from_options(options) as landmarker:
             for label, folder in dataset_map.items():
                 if folder is None or not folder.exists() or not folder.is_dir():
@@ -171,7 +171,7 @@ class FeatureEngineering:
                                 })
                     cap.release()
         df = self.utils.create_dataframe_from_list(features_data, columns=["participant_id","ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos","label"])
-        self.utils.transform_dataframe_to_csv(df, 'trusted', 'features_data_v2')
+        self.utils.transform_dataframe_to_csv(df, 'trusted', 'features_data_video')
 
     def extract_features_from_webcam(self) -> None:
         options = self.face_landmarker_options

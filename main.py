@@ -1,14 +1,15 @@
-from utilitaries.Utils import Utils
-from models.AccidentDetection import AccidentDetection
 from models.DrowsinessDetection import DrowsinessDetection
-import pandas as pd
+from utilitaries.FeatureEngineering import FeatureEngineering
 
-def start_training_models():
-    # accident_detection = AccidentDetection()
-    # accident_detection.train_model()
+def extract_features():
+    feature_engineering = FeatureEngineering()
+    feature_engineering.extract_features_from_video('data/UTA-RLDD/videos/train')
+    print('Finalizado com sucesso')
+
+def orchestrate_model():
     drowsiness_detection = DrowsinessDetection()
     drowsiness_detection.train_model()
-    drowsiness_detection.train_model_adaboost()
 
 if __name__ == "__main__":    
-    start_training_models()
+    orchestrate_model()
+    #extract_features()

@@ -30,7 +30,10 @@ class Utils:
         if not os.path.exists(f"data/{filename}_{stage}.csv"):
             os.makedirs(f"data/{filename}_{stage}.csv")
         file_name = f"data/{filename}_{stage}.csv"
-        df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
+        try:
+            df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
+        except Exception as e:
+            print(f"Erro ao salvar DataFrame: {e}")
         return file_name
     
     def drop_columns(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:

@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score,ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 class Utils:
     def __init__(self) -> None:
@@ -27,8 +28,6 @@ class Utils:
             print(f"Erro ao criar DataFrame a partir da lista: {e}")
         
     def transform_dataframe_to_csv(self, df : pd.DataFrame, stage: str, filename : str) -> None:
-        if not os.path.exists(f"data/{filename}_{stage}.csv"):
-            os.makedirs(f"data/{filename}_{stage}.csv")
         file_name = f"data/{filename}_{stage}.csv"
         try:
             df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
@@ -94,3 +93,11 @@ class Utils:
         
         pitch, yaw, roll = euler_angles.flatten()
         return pitch, yaw, roll
+
+    def generate_model_test_log(self,df:pd.DataFrame, target_column:np.ndarray,column_name :str) -> None:
+        df[column_name] = target_column
+        curr_time = time.localtime()
+        file_name = 'temp/'+time.strftime("%d_%m_%Y_%M_%S",curr_time)
+        self.transform_dataframe_to_csv(df,'LOG',file_name)
+
+

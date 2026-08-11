@@ -1,42 +1,42 @@
-from utilitaries.Utils import Utils
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-import pandas as pd 
-from imblearn.over_sampling import SMOTE
-from utilitaries.FeatureEngineering import FeatureEngineering
+from interfaces.BaseModelo import BaseModelo
 import os
 import joblib
-
-
-class DrowsinessDetection:
+import pandas as pd 
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+class DrowsinessDetection(BaseModelo):
     def __init__(self) -> None:
-        self.utils = Utils()
+        super().__init__()
+        self.X_test = []
+        self.X_train = []
+        self.y_test = []
+        self.y_train = []
 
-    def train_model(self):
-        if os.path.exists(f"data/features_data_video.csv"):
+    def train_model(self,file_path:str,model_path:str):
+        if os.path.exists(file_path):
             print("Features já foram extraídas")
 
-            df = self.utils.create_dataframe('data/features_data_video.csv')
-            X_train, X_test, y_train, y_test = self.split_data(df)
+            df = self.utils.create_dataframe(file_path)
+            self.X_train, self.X_test, self.y_train, self.y_test = self.split_data(df)
             pipeline = self.create_pipeline()
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_test)
-            
-            self.utils.create_model_evaluation_report(y_test, y_pred , 'Random Forest')
-            self.utils.create_confusion_matrix(y_test, y_pred, pipeline.named_steps['rf'],'Random Forest')
-            self.save_model()
+            pipeline.fit(self.X_train, self.y_train)
+            self.test_model(pipeline)            
+            self.save_model(model_path)
         else:
             print("Extraindo features...")
             try:
-                feature_engineering = FeatureEngineering()
-                feature_engineering.extract_features_from_video('data/UTA-RLDD/videos/train')
+                feature_engineering = self.feature_engineering
+                feature_engineering.extract_features_from_video(file_path)
                 print('Finalizado com sucesso')
             except Exception as e:
                 print('Erro ao extrair features:', e)
     
-    def test_model(self):
-        pass
+    def test_model(self,pipeline):
+        print('Testando modelo')
+        y_pred = pipeline.predict(self.X_test)
+        self.utils.create_model_evaluation_report(self.y_test, y_pred , 'Random Forest')
+        self.utils.create_confusion_matrix(self.y_test, y_pred, pipeline.named_steps['rf'],'Random Forest')
 
     def split_data(self, df: pd.DataFrame) -> pd.DataFrame:
         X = df[["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"]]
@@ -52,5 +52,9 @@ class DrowsinessDetection:
         ])
         return pipeline
 
-    def save_model(self) -> None:
-        joblib.dump(self.create_pipeline(), 'models/saved_models/drowsiness_detection_model.pkl')
+    def save_model(self,model_path:str) -> None:
+        joblib.dump(self.create_pipeline(), model_path)
+        print('Modelo salvo com sucesso')
+
+    def load_model(self,model_path:str):
+        return joblib.load(model_path)

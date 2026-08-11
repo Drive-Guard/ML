@@ -13,10 +13,11 @@ from utilitaries.Utils import Utils
 import os
 
 class FeatureEngineering:
-    WINDOW_SIZE: int
     FRAME_SKIP : int
     TARGET_MINUTES : list[int]
     WINDOW_SIZE : int
+    PROP_FRAME_WIDTH : int
+    PROP_FRAME_HEIGHT : int
 
     def __init__(self) -> None:
         self.utils = Utils()
@@ -24,6 +25,8 @@ class FeatureEngineering:
         self.WINDOW_SIZE = 15
         self.TARGET_MINUTES = [1,2,3]
         self.WINDOW_SIZE = 15
+        self.PROP_FRAME_WIDTH = 640
+        self.PROP_FRAME_HEIGHT = 480
         base_options = python.BaseOptions(model_asset_path= 'utilitaries/model_assets/face_landmarker.task')
         self.face_landmarker_options = vision.FaceLandmarkerOptions(base_options=base_options,
                                             output_face_blendshapes=True,
@@ -86,7 +89,7 @@ class FeatureEngineering:
         df = self.utils.create_dataframe_from_list(features_data, columns=["ear", "mar", "pitch", "yaw", "roll", "label"])
         self.utils.transform_dataframe_to_csv(df, 'trusted', 'features_data')
 
-    def extract_features_from_video(self, video_path: str) -> pd.DataFrame:
+    def extract_features_from_video(self, video_path: str) -> None:
         options = self.face_landmarker_options
         dataset_map = self.create_folder_map(video_path)
         features_data = []
@@ -173,19 +176,18 @@ class FeatureEngineering:
         df = self.utils.create_dataframe_from_list(features_data, columns=["participant_id","ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos","label"])
         self.utils.transform_dataframe_to_csv(df, 'trusted', 'features_data_video')
 
-    def extract_features_from_webcam(self) -> None:
+    def extract_features_from_webcam(self,model) -> None:
         options = self.face_landmarker_options
         features_data = []
         cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.PROP_FRAME_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.PROP_FRAME_HEIGHT)
         WINDOW_SIZE = 15
 
         with FaceLandmarker.create_from_options(options) as landmarker:
             if not cap.isOpened():
                 print("Erro ao abrir a webcam")
                 exit()
-
             window_ear = deque(maxlen=WINDOW_SIZE)
             window_mar = deque(maxlen=WINDOW_SIZE)  
             window_pitch = deque(maxlen=WINDOW_SIZE)
@@ -194,51 +196,70 @@ class FeatureEngineering:
 
             historico_olhos = []
 
-        while True:
-            ret, frame = cap.read()
-            frame = cv2.flip(frame, 1)
+            while True:
+                ret, frame = cap.read()
+                frame = cv2.flip(frame, 1)
 
-            if not ret:
-                print("Error: Failed to grab a frame.")
-                break
+                if not ret:
+                    print("Error: Failed to grab a frame.")
+                    break
 
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
-            detection_result = landmarker.detect(mp_image)
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                detection_result = landmarker.detect(mp_image)
+                if detection_result.facial_transformation_matrixes and detection_result.face_landmarks:                
+                    ear = self.utils.calculate_eye_aspect_ratio(detection_result.face_landmarks[0])
+                    mar = self.utils.calcular_mouth_aspect_ratio(detection_result.face_landmarks[0])
+                    matrix = detection_result.facial_transformation_matrixes[0]
+                    pitch, yaw, roll = self.utils.extract_euler_angles(matrix)
+                    historico_olhos.append(ear)
 
-            if detection_result.facial_transformation_matrixes and detection_result.face_landmarks:                
-                ear = self.utils.calculate_eye_aspect_ratio(detection_result.face_landmarks[0])
-                mar = self.utils.calcular_mouth_aspect_ratio(detection_result.face_landmarks[0])
-                matrix = detection_result.facial_transformation_matrixes[0]
-                pitch, yaw, roll = self.utils.extract_euler_angles(matrix)
-                historico_olhos.append(ear)
+                    window_ear.append(ear)
+                    window_mar.append(mar)
+                    window_pitch.append(pitch)
+                    window_roll.append(roll)
+                    window_yaw.append(yaw)
+                    if len(window_ear) == WINDOW_SIZE:
+                        arr_ear = np.array(window_ear,dtype=float)
+                        arr_mar = np.array(window_mar,dtype=float)
+                        arr_pitch = np.array(window_pitch,dtype=float)
+                        arr_roll = np.array(window_roll,dtype=float)
+                        arr_yaw = np.array(window_yaw,dtype=float)
 
-                window_ear.append(ear)
-                window_mar.append(mar)
-                window_pitch.append(pitch)
-                window_roll.append(roll)
-                window_yaw.append(yaw)
+                        features_data.append({
+                            "ear_mean": arr_ear.mean(),
+                            "ear_std": arr_ear.std(),
+                            "ear_min": arr_ear.min(),
+                            "mar_mean": arr_mar.mean(),
+                            "mar_std": arr_mar.std(),
+                            "pitch_std": arr_pitch.std(),
+                            "perclos": sum(historico_olhos) / WINDOW_SIZE
+                        })  
 
-                if len(window_ear) == WINDOW_SIZE:
-                    arr_ear = np.array(window_ear,dtype=float)
-                    arr_mar = np.array(window_mar,dtype=float)
-                    arr_pitch = np.array(window_pitch,dtype=float)
-                    arr_roll = np.array(window_roll,dtype=float)
-                    arr_yaw = np.array(window_yaw,dtype=float)
+                        df = self.utils.create_dataframe_from_list(features_data, columns=["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"])
+                        X = df[["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"]]
+                        predict = model.predict(X)
 
-                    features_data.append({
-                        "ear_mean": arr_ear.mean(),
-                        "ear_std": arr_ear.std(),
-                        "ear_min": arr_ear.min(),
-                        "mar_mean": arr_mar.mean(),
-                        "mar_std": arr_mar.std(),
-                        "pitch_std": arr_pitch.std(),
-                        "perclos": sum(historico_olhos) / WINDOW_SIZE,
-                    })  
+                        if (predict == 1).any():
+                            alert_text = 'SONO DETECTADO'
+                            font_color = (255,0,0)
+                        else:
+                            alert_text = 'SEM SONO'
+                            font_color = (0,255,0)
 
-            cv2.imshow('Webcam', cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
-            key = cv2.waitKey(1) 
-            if key == ord('q'):
-                break
+                        position = (50,90)
+                        text_font = cv2.FONT_HERSHEY_TRIPLEX
+                        font_scale = 0.8
+                        font_thickness = 1
+                        font_line_type = cv2.LINE_8
+                        cv2.putText(frame_rgb,alert_text,position,text_font,font_scale,font_color,font_thickness,font_line_type)
+
+                            
+                cv2.imshow('Webcam - Aperte a tecla Q para finalizar', cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
+                key = cv2.waitKey(1) 
+                if key == ord('q'):
+                    break
         cap.release()
-        cap.destroyAllWindows()
+        cv2.destroyAllWindows()
+        if 'df' in locals() and 'predict' in locals():
+            self.utils.generate_model_test_log(df, predict, 'label')

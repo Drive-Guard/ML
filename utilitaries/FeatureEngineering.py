@@ -178,32 +178,28 @@ class FeatureEngineering:
 
     def extract_features_from_webcam(self,model) -> None:
         options = self.face_landmarker_options
-        features_data = []
+
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.PROP_FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.PROP_FRAME_HEIGHT)
-        WINDOW_SIZE = 15
 
         with FaceLandmarker.create_from_options(options) as landmarker:
             if not cap.isOpened():
-                print("Erro ao abrir a webcam")
-                exit()
-            window_ear = deque(maxlen=WINDOW_SIZE)
-            window_mar = deque(maxlen=WINDOW_SIZE)  
-            window_pitch = deque(maxlen=WINDOW_SIZE)
-            window_yaw = deque(maxlen=WINDOW_SIZE)
-            window_roll = deque(maxlen=WINDOW_SIZE)
+                raise RuntimeError("Erro ao abrir a webcam")
 
-            historico_olhos = []
+            features_data_log = []
+            window_ear = deque(maxlen=self.WINDOW_SIZE)
+            window_mar = deque(maxlen=self.WINDOW_SIZE)  
+            window_pitch = deque(maxlen=self.WINDOW_SIZE)
 
             while True:
                 ret, frame = cap.read()
-                frame = cv2.flip(frame, 1)
 
                 if not ret:
-                    print("Error: Failed to grab a frame.")
+                    print("Erro ao registrar o frame.")
                     break
 
+                frame = cv2.flip(frame, 1)
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
                 detection_result = landmarker.detect(mp_image)
@@ -212,54 +208,60 @@ class FeatureEngineering:
                     mar = self.utils.calcular_mouth_aspect_ratio(detection_result.face_landmarks[0])
                     matrix = detection_result.facial_transformation_matrixes[0]
                     pitch, yaw, roll = self.utils.extract_euler_angles(matrix)
-                    historico_olhos.append(ear)
 
                     window_ear.append(ear)
                     window_mar.append(mar)
                     window_pitch.append(pitch)
-                    window_roll.append(roll)
-                    window_yaw.append(yaw)
-                    if len(window_ear) == WINDOW_SIZE:
+
+                    if len(window_ear) == self.WINDOW_SIZE:
                         arr_ear = np.array(window_ear,dtype=float)
                         arr_mar = np.array(window_mar,dtype=float)
-                        arr_pitch = np.array(window_pitch,dtype=float)
-                        arr_roll = np.array(window_roll,dtype=float)
-                        arr_yaw = np.array(window_yaw,dtype=float)
-
-                        features_data.append({
-                            "ear_mean": arr_ear.mean(),
-                            "ear_std": arr_ear.std(),
-                            "ear_min": arr_ear.min(),
-                            "mar_mean": arr_mar.mean(),
-                            "mar_std": arr_mar.std(),
-                            "pitch_std": arr_pitch.std(),
-                            "perclos": sum(historico_olhos) / WINDOW_SIZE
-                        })  
-
-                        df = self.utils.create_dataframe_from_list(features_data, columns=["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"])
+                        arr_pitch = np.array(window_pitch,dtype=float) 
+                        current_features = [
+                            float(arr_ear.mean()),
+                            float(arr_ear.std()),
+                            float(arr_ear.min()),
+                            float(arr_mar.mean()),
+                            float(arr_mar.std()),
+                            float(arr_pitch.std()),
+                            float(np.mean(arr_ear < 0.2))
+                        ]
+                        
+                        df = self.utils.create_dataframe_from_list([current_features], columns=["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"])
                         X = df[["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"]]
-                        predict = model.predict(X)
 
-                        if (predict == 1).any():
+                        predict = int(model.predict(X)[0])
+                        print(predict)
+                        features_data_log.append(current_features +[predict])
+                            
+                        if predict == 1:
                             alert_text = 'SONO DETECTADO'
                             font_color = (255,0,0)
-                        else:
-                            alert_text = 'SEM SONO'
-                            font_color = (0,255,0)
+                            position = (50,90)
+                            text_font = cv2.FONT_HERSHEY_TRIPLEX
+                            font_scale = 0.8
+                            font_thickness = 1
+                            font_line_type = cv2.LINE_8
+                            cv2.putText(frame_rgb,alert_text,position,text_font,font_scale,font_color,font_thickness,font_line_type)
 
-                        position = (50,90)
-                        text_font = cv2.FONT_HERSHEY_TRIPLEX
-                        font_scale = 0.8
-                        font_thickness = 1
-                        font_line_type = cv2.LINE_8
-                        cv2.putText(frame_rgb,alert_text,position,text_font,font_scale,font_color,font_thickness,font_line_type)
-
-                            
                 cv2.imshow('Webcam - Aperte a tecla Q para finalizar', cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
                 key = cv2.waitKey(1) 
-                if key == ord('q'):
+                if key == ord('q') & 0xFF == ord("q"):
                     break
+
         cap.release()
         cv2.destroyAllWindows()
-        if 'df' in locals() and 'predict' in locals():
-            self.utils.generate_model_test_log(df, predict, 'label')
+
+        if features_data_log:
+            df_log = self.utils.create_dataframe_from_list(features_data_log,[
+                "ear_mean",
+                "ear_std",
+                "ear_min",
+                "mar_mean",
+                "mar_std",
+                "pitch_std",
+                "perclos",
+                "prediction"
+            ])
+            predictions = df_log.pop("prediction").to_numpy()
+            self.utils.generate_model_test_log(df_log, predictions, 'label')

@@ -97,7 +97,7 @@ class Utils:
     def generate_model_test_log(self,df:pd.DataFrame, target_column:np.ndarray,column_name :str) -> None:
         df[column_name] = target_column
         curr_time = time.localtime()
-        file_name = 'temp/'+time.strftime("%d_%m_%Y_%M_%S",curr_time)
+        file_name = 'temp/'+time.strftime("%d_%m_%Y_%H_%M_%S",curr_time)
         self.transform_dataframe_to_csv(df,'LOG',file_name)
 
 

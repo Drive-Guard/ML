@@ -1,64 +1,45 @@
-from utilitaries.Utils import Utils
+from interfaces.BaseModelo import BaseModelo
+import os
+import joblib
+import pandas as pd 
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-import pandas as pd 
-from imblearn.over_sampling import SMOTE
-from utilitaries.FeatureEngineering import FeatureEngineering
-import os
-
-
-class DrowsinessDetection:
+from sklearn.ensemble import RandomForestClassifier
+class DrowsinessDetection(BaseModelo):
     def __init__(self) -> None:
-        self.utils = Utils()
+        super().__init__()
+        self.X_test = []
+        self.X_train = []
+        self.y_test = []
+        self.y_train = []
 
-    def train_model(self):
-        if os.path.exists(f"data/features_data_trusted.csv"):
+    def train_model(self,file_path:str,model_path:str):
+        if os.path.basename(file_path) == 'features_data_video_train.csv':
             print("Features já foram extraídas")
 
-            df = self.utils.create_dataframe('data/features_data_trusted.csv')
-            X_train, X_test, y_train, y_test = self.split_data(df)
+            df = self.utils.create_dataframe(file_path)
+            self.X_train, self.X_test, self.y_train, self.y_test = self.split_data(df)
             pipeline = self.create_pipeline()
-            
-            # Uso de SMOTE para balancear as classes
-            smote = SMOTE(random_state=42)
-            X_train_resampled, y_train_resampled = smote.fit_resample(pipeline.named_steps['scaler'].fit_transform(X_train), y_train)
-            rf_smote = pipeline.named_steps['rf']
-            rf_smote.fit(X_train_resampled, y_train_resampled)
-            y_pred = rf_smote.predict((pipeline.named_steps['scaler'].transform(X_test)))
-
-            self.utils.create_model_evaluation_report(y_test, y_pred , 'Random Forest')
-            self.utils.create_confusion_matrix(y_test, y_pred, pipeline.named_steps['rf'],'Random Forest')
+            pipeline.fit(self.X_train, self.y_train)
+            self.test_model(pipeline)
+            self.save_model(pipeline,model_path)
         else:
             print("Extraindo features...")
             try:
-                feature_engineering = FeatureEngineering()
-                feature_engineering.extract_features_from_image('data/train')
+                feature_engineering = self.feature_engineering
+                feature_engineering.extract_features_from_video(file_path)
                 print('Finalizado com sucesso')
             except Exception as e:
                 print('Erro ao extrair features:', e)
     
-    def train_model_adaboost(self):
-        df = self.utils.create_dataframe('data/features_data_trusted.csv')
-        X_train, X_test, y_train, y_test = self.split_data(df)
-        pipeline = self.create_pipeline()
-        
-        adaboost = AdaBoostClassifier(n_estimators=100, random_state=42)
-        # Uso de SMOTE para balancear as classes
-        smote = SMOTE(random_state=42)
-        X_train_resampled, y_train_resampled = smote.fit_resample(pipeline.named_steps['scaler'].fit_transform(X_train), y_train)
-        adaboost_smote = adaboost
-        adaboost_smote.fit(X_train_resampled, y_train_resampled)
-        y_pred = adaboost_smote.predict((pipeline.named_steps['scaler'].transform(X_test)))
-
-        self.utils.create_model_evaluation_report(y_test, y_pred , 'Adaboost')
-        self.utils.create_confusion_matrix(y_test, y_pred, adaboost,'Adaboost')
-
-    def test_model(self):
-        pass
+    def test_model(self,pipeline):
+        print('Testando modelo')
+        y_pred = pipeline.predict(self.X_test)
+        self.utils.create_model_evaluation_report(self.y_test, y_pred , 'Random Forest')
+        self.utils.create_confusion_matrix(self.y_test, y_pred, pipeline.named_steps['rf'],'Random Forest')
 
     def split_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        X = df[['ear','mar','pitch','yaw','roll']]
+        X = df[["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"]]
         
         X_train, X_test, y_train, y_test = self.utils.create_train_test_split(df, X.columns.tolist(), 'label')
         
@@ -67,6 +48,13 @@ class DrowsinessDetection:
     def create_pipeline(self) -> Pipeline:
         pipeline = Pipeline([
             ('scaler', StandardScaler()),
-            ('rf', RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced'))
+            ('rf', RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1, class_weight='balanced',max_depth=12,min_samples_split=2,min_samples_leaf=1,criterion='gini'))
         ])
         return pipeline
+
+    def save_model(self,pipeline : Pipeline,model_path:str) -> None:
+        joblib.dump(pipeline, model_path)
+        print('Modelo salvo com sucesso')
+
+    def load_model(self,model_path:str):
+        return joblib.load(model_path)

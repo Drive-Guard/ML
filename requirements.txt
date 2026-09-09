@@ -1,0 +1,10 @@
+pandas~=2.3.3
+numpy~=1.26.4
+sklearn-compat~=0.1.6
+opencv-contrib-python~=4.13.0.92
+opencv-python~=4.13.0.92
+matplotlib~=3.10.9
+matplotlib-inline~=0.2.2
+joblib~=1.5.3
+mediapipe~=0.10.33
+python-dotenv==1.1.1

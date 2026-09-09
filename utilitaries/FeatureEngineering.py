@@ -27,6 +27,7 @@ class FeatureEngineering:
         self.WINDOW_SIZE = 15
         self.PROP_FRAME_WIDTH = 640
         self.PROP_FRAME_HEIGHT = 480
+        self.PERCLOS_SECONDS = 60
         base_options = python.BaseOptions(model_asset_path= 'utilitaries/model_assets/face_landmarker.task')
         self.face_landmarker_options = vision.FaceLandmarkerOptions(base_options=base_options,
                                             output_face_blendshapes=True,
@@ -135,7 +136,6 @@ class FeatureEngineering:
                             ret, capture = cap.read()
                             if not ret:
                                 break
-
                             frames_read += 1
                             if frames_read % self.FRAME_SKIP == 0:
                                 continue
@@ -174,7 +174,7 @@ class FeatureEngineering:
                                 })
                     cap.release()
         df = self.utils.create_dataframe_from_list(features_data, columns=["participant_id","ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos","label"])
-        self.utils.transform_dataframe_to_csv(df, 'trusted', 'features_data_video')
+        self.utils.transform_dataframe_to_csv(df, 'train', 'features_data_video')
 
     def extract_features_from_webcam(self,model) -> None:
         options = self.face_landmarker_options
@@ -182,16 +182,27 @@ class FeatureEngineering:
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.PROP_FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.PROP_FRAME_HEIGHT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
 
+        if fps <= 0 or np.isnan(fps):
+            fps = 30.0
+
+        effective_fps = (fps* (self.FRAME_SKIP - 1)/ self.FRAME_SKIP)
+
+        if effective_fps <= 0:
+            effective_fps = fps
+            
+        perclos_window_size = max(1,int(round(effective_fps* self.PERCLOS_SECONDS)))
+        frame_counter = 0
+        features_data_log = []
+
+        window_ear = deque(maxlen=self.WINDOW_SIZE)
+        window_mar = deque(maxlen=self.WINDOW_SIZE)  
+        window_pitch = deque(maxlen=self.WINDOW_SIZE)
+        perclos_window = deque(maxlen=perclos_window_size)
         with FaceLandmarker.create_from_options(options) as landmarker:
             if not cap.isOpened():
                 raise RuntimeError("Erro ao abrir a webcam")
-
-            features_data_log = []
-            window_ear = deque(maxlen=self.WINDOW_SIZE)
-            window_mar = deque(maxlen=self.WINDOW_SIZE)  
-            window_pitch = deque(maxlen=self.WINDOW_SIZE)
-
             while True:
                 ret, frame = cap.read()
 
@@ -199,7 +210,12 @@ class FeatureEngineering:
                     print("Erro ao registrar o frame.")
                     break
 
+                frame_counter += 1
                 frame = cv2.flip(frame, 1)
+
+                if self.FRAME_SKIP > 1 and frame_counter % self.FRAME_SKIP == 0:
+                    continue
+
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
                 detection_result = landmarker.detect(mp_image)
@@ -213,10 +229,15 @@ class FeatureEngineering:
                     window_mar.append(mar)
                     window_pitch.append(pitch)
 
+                    eye_closed = 1 if ear < 0.2 else 0
+                    perclos_window.append(eye_closed)
+
                     if len(window_ear) == self.WINDOW_SIZE:
                         arr_ear = np.array(window_ear,dtype=float)
                         arr_mar = np.array(window_mar,dtype=float)
                         arr_pitch = np.array(window_pitch,dtype=float) 
+                        perclos = float(np.mean(np.asarray(perclos_window,dtype=np.float32)))
+
                         current_features = [
                             float(arr_ear.mean()),
                             float(arr_ear.std()),
@@ -224,7 +245,7 @@ class FeatureEngineering:
                             float(arr_mar.mean()),
                             float(arr_mar.std()),
                             float(arr_pitch.std()),
-                            float(np.mean(arr_ear < 0.2))
+                            perclos
                         ]
                         
                         df = self.utils.create_dataframe_from_list([current_features], columns=["ear_mean","ear_std","ear_min","mar_mean","mar_std","pitch_std","perclos"])
@@ -235,14 +256,7 @@ class FeatureEngineering:
                         features_data_log.append(current_features +[predict])
                             
                         if predict == 1:
-                            alert_text = 'SONO DETECTADO'
-                            font_color = (255,0,0)
-                            position = (50,90)
-                            text_font = cv2.FONT_HERSHEY_TRIPLEX
-                            font_scale = 0.8
-                            font_thickness = 1
-                            font_line_type = cv2.LINE_8
-                            cv2.putText(frame_rgb,alert_text,position,text_font,font_scale,font_color,font_thickness,font_line_type)
+                            cv2.putText(frame_rgb,"SONO DETECTADO",(50, 90),cv2.FONT_HERSHEY_TRIPLEX,0.8,(255, 0, 0),1,cv2.LINE_8)
 
                 cv2.imshow('Webcam - Aperte a tecla Q para finalizar', cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
                 key = cv2.waitKey(1) 

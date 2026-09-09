@@ -14,15 +14,15 @@ class DrowsinessDetection(BaseModelo):
         self.y_train = []
 
     def train_model(self,file_path:str,model_path:str):
-        if os.path.exists(file_path):
+        if os.path.basename(file_path) == 'features_data_video_train.csv':
             print("Features já foram extraídas")
 
             df = self.utils.create_dataframe(file_path)
             self.X_train, self.X_test, self.y_train, self.y_test = self.split_data(df)
             pipeline = self.create_pipeline()
             pipeline.fit(self.X_train, self.y_train)
-            self.test_model(pipeline)            
-            self.save_model(model_path)
+            self.test_model(pipeline)
+            self.save_model(pipeline,model_path)
         else:
             print("Extraindo features...")
             try:
@@ -52,8 +52,8 @@ class DrowsinessDetection(BaseModelo):
         ])
         return pipeline
 
-    def save_model(self,model_path:str) -> None:
-        joblib.dump(self.create_pipeline(), model_path)
+    def save_model(self,pipeline : Pipeline,model_path:str) -> None:
+        joblib.dump(pipeline, model_path)
         print('Modelo salvo com sucesso')
 
     def load_model(self,model_path:str):

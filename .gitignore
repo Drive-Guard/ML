@@ -1,1 +1,11 @@
-data
+# Datasets, modelos treinados e buffer de envio
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Credenciais
+.env

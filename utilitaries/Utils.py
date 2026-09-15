@@ -26,11 +26,10 @@ class Utils:
         except Exception as e:
             print(f"Erro ao criar DataFrame a partir da lista: {e}")
         
-    def transform_dataframe_to_csv(self, df : pd.DataFrame, stage: str, filename : str) -> None:
-        if not os.path.exists(f"data/{filename}_{stage}.csv"):
-            os.makedirs(f"data/{filename}_{stage}.csv")
+    def transform_dataframe_to_csv(self, df : pd.DataFrame, stage: str, filename : str) -> str:
+        os.makedirs("data", exist_ok=True)
         file_name = f"data/{filename}_{stage}.csv"
-        df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
+        df.to_csv(file_name, index=False, sep=';', encoding='utf-8')
         return file_name
     
     def drop_columns(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
@@ -84,7 +83,7 @@ class Utils:
         
         mar = self.calculate_euclidian_distance(mouth_sup, mouth_inf) / self.calculate_euclidian_distance(mouth_left, mouth_right)
         return mar
-    def extract_euler_angles(matrix_4x4):
+    def extract_euler_angles(self, matrix_4x4):
         R = matrix_4x4[0:3, 0:3]
         proj_matrix = np.hstack((R, np.zeros((3, 1))))
         _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)

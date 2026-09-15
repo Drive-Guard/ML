@@ -54,7 +54,7 @@ class FeatureEngineering:
                         continue
 
                     hash_img.add(file_hash)
-                    img = cv2.imread(file)
+                    img = cv2.imread(str(file))
                     if img is not None:
                         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                         detection_result = landmarker.detect(mp_image)

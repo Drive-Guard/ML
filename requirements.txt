@@ -1,0 +1,18 @@
+# --- Visao computacional e extracao de features (roda no veiculo) ---
+mediapipe==0.10.21
+opencv-python==4.11.0.86
+numpy>=1.26,<2.2
+
+# --- Modelo de votacao ---
+scikit-learn>=1.5,<2.0
+imbalanced-learn>=0.12,<1.0
+pandas==2.2.3
+joblib==1.4.2
+matplotlib==3.9.2
+
+# --- Integracao com a AWS ---
+requests==2.32.3
+boto3==1.35.76
+
+# --- Modelo de acidentes (dados abertos da PRF) ---
+# scikit-learn e pandas acima ja cobrem; nada adicional.

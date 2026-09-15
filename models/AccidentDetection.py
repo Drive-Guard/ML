@@ -13,7 +13,7 @@ class AccidentDetection(BaseModelo):
         self.components = 4
     
     def train_model(self):        
-        df = self.utils.create_dataframe('data\detran2026_trusted.csv')
+        df = self.utils.create_dataframe('data/detran2026_trusted.csv')
         X_train, X_test, y_train, y_test = self.split_data(df)
         pipeline = self.create_pipeline()
         pipeline.fit(X_train, y_train)

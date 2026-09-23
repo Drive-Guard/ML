@@ -100,4 +100,8 @@ class Utils:
         file_name = 'temp/'+time.strftime("%d_%m_%Y_%H_%M_%S",curr_time)
         self.transform_dataframe_to_csv(df,'LOG',file_name)
 
+    def sort_dataframe(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
+        return df.sort_values(by=[columns]).reset_index(drop=True)
+
+
 

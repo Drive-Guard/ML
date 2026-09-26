@@ -26,7 +26,7 @@ class FeatureEngineering:
         self.PERCLOS_SECONDS = 60
         self.PERCLOS_THRESHOLD = 0.15
         self.YAWN_THRESHOLD = 0.6
-        self.HEAD_DROP_THRESHOLD = -15
+        self.HEAD_DROP_THRESHOLD = 20
         self.ALERT_PERCLOS_THRESHOLD = 0.02
         self.CLOSED_MOUTH_THRESHOLD = 0.1
         base_options = python.BaseOptions(model_asset_path= 'utilitaries/model_assets/face_landmarker.task')
@@ -57,20 +57,20 @@ class FeatureEngineering:
         df['mar_behavior'] = df.groupby('participant_id')['mar'].transform(lambda x: x.rolling(window=60, min_periods=1).mean())
         df['label'] = np.nan
 
-        condicao_alerta = (
+        alert_condition = (
             (df['perclos'] <= self.ALERT_PERCLOS_THRESHOLD) & 
             (df['mar_behavior'] <= self.CLOSED_MOUTH_THRESHOLD) &
             (df['pitch_behavior'] > -5.0) 
         )
-        df.loc[condicao_alerta, 'label'] = 0
+        df.loc[alert_condition, 'label'] = 0
 
-        condicao_sono = (
+        sleep_condition = (
             (df['perclos'] >= self.PERCLOS_THRESHOLD) | 
             (df['mar_behavior'] >= self.YAWN_THRESHOLD) | 
             (df['pitch_behavior'] <= self.HEAD_DROP_THRESHOLD)
         )
-        df.loc[condicao_sono, 'label'] = 1
-        return df.dropna(subset=['label'],inplace=True)
+        df.loc[sleep_condition, 'label'] = 1
+        return df.dropna(subset=['label']).copy()
     
     def extract_features_from_video(self, video_path: str) -> None:
         features = []
@@ -135,6 +135,7 @@ class FeatureEngineering:
         self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
 
     def extract_features_from_webcam(self,model) -> None:
+        loaded_model = self.utils.load_model(model)
         features_data_log = []
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.PROP_FRAME_WIDTH)
@@ -186,7 +187,7 @@ class FeatureEngineering:
                             'perclos': perclos_val
                         }])
                         X = X_teste[['ear_behavior','pitch_behavior','mar_behavior','perclos']]
-                        pred = int(model.predict(X)[0])
+                        pred = int(loaded_model.predict(X)[0])
                         predicao = 1 if pred == 1 else 0
                         
                         if predicao == 1:

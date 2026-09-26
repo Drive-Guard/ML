@@ -6,6 +6,9 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+import joblib
 
 class Utils:
     def __init__(self) -> None:
@@ -40,11 +43,6 @@ class Utils:
     
     def order_by_column(self, df: pd.DataFrame, column_name: str) -> pd.DataFrame:
         return df.sort_values(by=column_name)
-    
-    def create_train_test_split(self, df: pd.DataFrame, columns: list, target_column: str, test_size: float = 0.3, random_state: int = 42):
-        X = df[columns]
-        y = df[target_column]
-        return train_test_split(X, y, test_size=test_size, random_state=random_state)
     
     def create_model_evaluation_report(self, y_true, y_pred,model_name:str) -> None:
         print(f"\nRelatório do modelo : {model_name}")
@@ -102,6 +100,21 @@ class Utils:
 
     def sort_dataframe(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
         return df.sort_values(by=[columns]).reset_index(drop=True)
+
+    def create_pipeline(self,model,step:str,scaler=StandardScaler()) -> Pipeline:
+        return Pipeline([
+            ('scaler',scaler),
+            (step,model)
+        ])
+    
+    def save_model(self,pipeline : Pipeline,model_path:str):
+        joblib.dump(pipeline, model_path)
+        print('Modelo salvo com sucesso')
+    
+    def load_model(self,model_path:str):
+        return joblib.load(model_path)
+
+
 
 
 

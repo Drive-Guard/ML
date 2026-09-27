@@ -44,8 +44,7 @@ class Utils:
     def order_by_column(self, df: pd.DataFrame, column_name: str) -> pd.DataFrame:
         return df.sort_values(by=column_name)
     
-    def create_model_evaluation_report(self, y_true, y_pred,model_name:str) -> None:
-        print(f"\nRelatório do modelo : {model_name}")
+    def create_model_evaluation_report(self, y_true, y_pred) -> None:
         print("=" * 67)
         print(classification_report(y_true, y_pred))
         print("=" * 67)
@@ -54,7 +53,7 @@ class Utils:
         cm = confusion_matrix(y_true, y_pred)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=model.classes_)
         disp.plot(cmap=plt.cm.Greens)
-        plt.title(f'Matriz de Confusão para {model_name} (Acurácia {accuracy_score(y_true, y_pred):.2%})')
+        plt.title(f'{model_name} : {accuracy_score(y_true, y_pred):.2%}')
         plt.show()
 
     def calculate_euclidian_distance(self,p1, p2) -> float:

@@ -192,13 +192,12 @@ class FeatureEngineering:
                         X_teste = pd.DataFrame([{
                             'ear_behavior': ear_comp,
                             'pitch_behavior': pitch_comp,
-                            'mar_behavior': mar_comp,
-                            'perclos': perclos_val
+                            'roll_behavior': roll_comp,
                         }])
                         X = X_teste[['ear_behavior','pitch_behavior','roll_behavior']]
                         pred = int(loaded_model.predict(X)[0])
                         predicao = 1 if pred == 1 else 0
-                        features_data_log.append([ear_comp,pitch_comp,mar_comp,perclos_val,predicao])
+                        features_data_log.append([ear_comp,pitch_comp,roll_comp,predicao])
                         if predicao == 1:
                             state = "SONO!"
                             message_color = (0, 0, 255)
@@ -222,6 +221,6 @@ class FeatureEngineering:
             cap.release()
             cv2.destroyAllWindows()
         if features_data_log:
-            df_log = self.utils.create_dataframe_from_list(features_data_log,['ear_behavior','pitch_behavior','mar_behavior','perclos','prediction'])
+            df_log = self.utils.create_dataframe_from_list(features_data_log,['ear_behavior','pitch_behavior','roll_behavior','prediction'])
             predictions = df_log.pop("prediction").to_numpy()
             self.utils.generate_model_test_log(df_log, predictions, 'label')

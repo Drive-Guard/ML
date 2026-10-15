@@ -1,6 +1,10 @@
 pandas~=2.3.3
 numpy~=1.26.4
 sklearn-compat~=0.1.6
+scikit-learn~=1.8.0
+xgboost~=3.4.1
+scikeras~=0.13.0
+tensorflow~=2.21.0
 opencv-contrib-python~=4.13.0.92
 opencv-python~=4.13.0.92
 matplotlib~=3.10.9

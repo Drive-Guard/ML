@@ -138,7 +138,7 @@ class FeatureEngineering:
                 cap.release()
         df = self.utils.create_dataframe_from_list(features, columns=["participant_id","minute","frame","ear","mar","pitch","yaw","roll","perclos"])
         df = self.adjust_label_column(df)
-        self.utils.transform_dataframe_to_csv(df, 'train', 'features_video_enhanced')
+        self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
 
     def extract_features_from_webcam(self,model) -> None:
         loaded_model = self.utils.load_model(model)

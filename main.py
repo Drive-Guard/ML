@@ -1,14 +1,27 @@
-from utilitaries.Utils import Utils
-from models.AccidentDetection import AccidentDetection
-from models.DrowsinessDetection import DrowsinessDetection
-import pandas as pd
+from utilitaries.Orchestrator import Orchestrator
+import os
+import dotenv
 
-def start_training_models():
-    # accident_detection = AccidentDetection()
-    # accident_detection.train_model()
-    drowsiness_detection = DrowsinessDetection()
-    drowsiness_detection.train_model()
-    drowsiness_detection.train_model_adaboost()
+if __name__ == "__main__":  
+    dotenv.load_dotenv()
+    os.makedirs("data/temp",exist_ok=True)
+    behavior = os.environ['MODEL_BEHAVIOR']
+    model_filepath = os.environ['MODEL_FILEPATH']
+    file_to_train = os.getenv('FILE_TO_TRAIN_MODEL')
+    train_video_filepath = os.getenv('MODEL_TRAIN_VIDEO_FILEPATH')
 
-if __name__ == "__main__":    
-    start_training_models()
+    orchestrator = Orchestrator(model_filepath)
+    
+    if behavior == 'TEST':
+        orchestrator.test_models_with_webcam(model_filepath)
+    elif behavior == 'TRAIN': 
+        orchestrator.train_models(file_to_train,model_filepath)
+    elif behavior == 'EXTRACT':
+        orchestrator.extract_features(train_video_filepath)
+    elif behavior == 'PUBLISH':
+        orchestrator.publish_to_cloud(model_filepath, file_to_train)
+    else:
+        print('Configure corretamente o arquivo .env')
+        
+
+    

@@ -5,6 +5,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score,ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import numpy as np
+import time
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+import joblib
 
 class Utils:
     def __init__(self) -> None:
@@ -27,10 +31,11 @@ class Utils:
             print(f"Erro ao criar DataFrame a partir da lista: {e}")
         
     def transform_dataframe_to_csv(self, df : pd.DataFrame, stage: str, filename : str) -> None:
-        if not os.path.exists(f"data/{filename}_{stage}.csv"):
-            os.makedirs(f"data/{filename}_{stage}.csv")
         file_name = f"data/{filename}_{stage}.csv"
-        df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
+        try:
+            df.to_csv(file_name, index=False,sep=';', encoding='utf-8')
+        except Exception as e:
+            print(f"Erro ao salvar DataFrame: {e}")
         return file_name
     
     def drop_columns(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
@@ -39,13 +44,7 @@ class Utils:
     def order_by_column(self, df: pd.DataFrame, column_name: str) -> pd.DataFrame:
         return df.sort_values(by=column_name)
     
-    def create_train_test_split(self, df: pd.DataFrame, columns: list, target_column: str, test_size: float = 0.3, random_state: int = 42):
-        X = df[columns]
-        y = df[target_column]
-        return train_test_split(X, y, test_size=test_size, random_state=random_state)
-    
-    def create_model_evaluation_report(self, y_true, y_pred,model_name:str) -> None:
-        print(f"\nRelatório do modelo : {model_name}")
+    def create_model_evaluation_report(self, y_true, y_pred) -> None:
         print("=" * 67)
         print(classification_report(y_true, y_pred))
         print("=" * 67)
@@ -54,7 +53,7 @@ class Utils:
         cm = confusion_matrix(y_true, y_pred)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=model.classes_)
         disp.plot(cmap=plt.cm.Greens)
-        plt.title(f'Matriz de Confusão para {model_name} (Acurácia {accuracy_score(y_true, y_pred):.2%})')
+        plt.title(f'{model_name} : {accuracy_score(y_true, y_pred):.2%}')
         plt.show()
 
     def calculate_euclidian_distance(self,p1, p2) -> float:
@@ -84,10 +83,37 @@ class Utils:
         
         mar = self.calculate_euclidian_distance(mouth_sup, mouth_inf) / self.calculate_euclidian_distance(mouth_left, mouth_right)
         return mar
-    def extract_euler_angles(matrix_4x4):
+    def extract_euler_angles(self,matrix_4x4):
         R = matrix_4x4[0:3, 0:3]
         proj_matrix = np.hstack((R, np.zeros((3, 1))))
         _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(proj_matrix)
         
         pitch, yaw, roll = euler_angles.flatten()
         return pitch, yaw, roll
+
+    def generate_model_test_log(self,df:pd.DataFrame, target_column:np.ndarray,column_name :str) -> None:
+        df[column_name] = target_column
+        curr_time = time.localtime()
+        file_name = 'temp/'+time.strftime("%d_%m_%Y_%H_%M_%S",curr_time)
+        self.transform_dataframe_to_csv(df,'LOG',file_name)
+
+    def sort_dataframe(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
+        return df.sort_values(by=[columns]).reset_index(drop=True)
+
+    def create_pipeline(self,model,step:str,scaler=StandardScaler()) -> Pipeline:
+        return Pipeline([
+            ('scaler',scaler),
+            (step,model)
+        ])
+    
+    def save_model(self,pipeline : Pipeline,model_path:str):
+        joblib.dump(pipeline, model_path)
+        print('Modelo salvo com sucesso')
+    
+    def load_model(self,model_path:str):
+        return joblib.load(model_path)
+
+
+
+
+

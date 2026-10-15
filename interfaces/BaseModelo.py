@@ -58,12 +58,12 @@ class BaseModelo(ABC):
         self.utils.create_confusion_matrix(self.y_test, y_pred, pipeline.named_steps[step_name], self.model_name)
 
     def split_data(self,df:pd.DataFrame) -> pd.DataFrame:
-        feature_columns = ["ear_behavior", "pitch_behavior", "mar_behavior", "perclos"]
+        feature_columns = ["ear_behavior", "pitch_behavior", "roll_behavior"]
         X = df[feature_columns]
         y = df["label"]
         groups = df["participant_id"]
 
-        gfk = GroupShuffleSplit(n_splits=2, test_size=0.3, random_state=42)
+        gfk = GroupShuffleSplit(n_splits=6, test_size=0.3, random_state=42)
         for train_idx, test_idx in gfk.split(X, y, groups):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]

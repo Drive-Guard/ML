@@ -77,3 +77,46 @@ MODEL_FILEPATH= Local do modelo já treinado
 ```
 
 Esse modo requer webcam e um modelo previamente salvo que é utilizado para capturar os valores do rosto e classificar em alerta ou sonolento.
+
+## Integração com a AWS
+
+O modelo pode enviar as leituras para a nuvem do DriveGuard, provisionada no repositório [`Drive-Guard/Infra`](https://github.com/Drive-Guard/Infra) (API Gateway → S3 → RDS → dashboard). A integração é opcional: sem `DRIVEGUARD_API_URL` no `.env`, todos os modos funcionam como antes.
+
+### Variáveis
+
+| Variável | Uso |
+| --- | --- |
+| `DRIVEGUARD_API_URL` | URL da API (`terraform output -raw api_invoke_url`). Liga o envio. |
+| `DRIVEGUARD_API_KEY` | Chave da API (`terraform output -raw api_key_value`). |
+| `DRIVEGUARD_MOTORISTA_ID` | Identificador do motorista. É convertido em SHA-256 antes do envio. |
+| `DRIVEGUARD_PLACA` | Opcional. Placa do veículo, também enviada só como hash. |
+| `DRIVEGUARD_DEVICE_ID` | Identificador do dispositivo. Padrão `dg-edge-0001`. |
+| `DRIVEGUARD_ARTIFACTS_BUCKET` | Bucket de artefatos (`terraform output -raw artifacts_bucket`), usado no modo `PUBLISH`. |
+| `DRIVEGUARD_PUBLISH_STEP` | No modo `PUBLISH`, envia uma linha a cada N do CSV. Padrão 30 (≈ 1 leitura por segundo de vídeo). |
+
+### Modo `TEST` com envio
+
+Com as variáveis preenchidas, o modo `TEST` envia uma leitura por segundo enquanto a webcam roda, mais um alerta toda vez que o modelo passa de acordado para sono. A classificação e o aviso na tela não dependem da rede: o envio acontece numa thread separada e, se falhar, o lote fica em `data/temp/buffer_offline.jsonl` e é reenviado ao fim da sessão.
+
+### Modo `PUBLISH`
+
+```env
+MODEL_BEHAVIOR=PUBLISH
+MODEL_FILEPATH= modelo treinado
+FILE_TO_TRAIN_MODEL= CSV gerado pelo modo EXTRACT (opcional)
+```
+
+Envia o modelo para o S3 e, se um CSV for informado, classifica as linhas com o modelo e envia as leituras para a API. Cada `participant_id` vira um motorista no dashboard. Como os vídeos não têm horário real, o horário de cada leitura é reconstruído a partir de `minute` e `frame`, mantendo o intervalo real entre elas.
+
+### O que é enviado
+
+| Campo | Origem |
+| --- | --- |
+| `estado` | `predict()` do modelo: 0 → `alerta`, 1 → `sonolento` |
+| `score_fadiga` | `100 × P(sono)` |
+| `ear`, `mar`, `perclos`, `head_pitch`, `head_yaw`, `head_roll` | Valores suavizados pelas mesmas janelas usadas na predição |
+
+`P(sono)` vem de `predict_proba`. Em modelos com `voting="hard"`, que não têm `predict_proba`, ela é a média das probabilidades dos membros do ensemble (RF e XGBoost). A classe enviada continua sendo a do `predict()`; só o score vem dessa média.
+
+Nenhuma imagem sai da máquina, só os números acima.
+

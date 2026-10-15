@@ -8,7 +8,9 @@ from pathlib import Path
 import pandas as pd
 from collections import deque
 from utilitaries.Utils import Utils
+from utilitaries import CloudPublisher
 import os
+import time
 
 class FeatureEngineering:
     def __init__(self) -> None:
@@ -140,7 +142,7 @@ class FeatureEngineering:
         df = self.adjust_label_column(df)
         self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
 
-    def extract_features_from_webcam(self,model) -> None:
+    def extract_features_from_webcam(self,model,cliente=None) -> None:
         loaded_model = self.utils.load_model(model)
         features_data_log = []
         cap = cv2.VideoCapture(0)
@@ -153,6 +155,8 @@ class FeatureEngineering:
         roll_buffer = deque(maxlen=self.WINDOW_PITCH)
         yaw_buffer = deque(maxlen=self.WINDOW_PITCH)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        ultimo_envio_nuvem = 0.0
+        predicao_anterior = 0
 
         with FaceLandmarker.create_from_options(self.face_landmarker_options) as landmarker:
             while cap.isOpened():
@@ -198,6 +202,12 @@ class FeatureEngineering:
                         pred = int(loaded_model.predict(X)[0])
                         predicao = 1 if pred == 1 else 0
                         features_data_log.append([ear_comp,pitch_comp,roll_comp,predicao])
+                        if cliente is not None:
+                            if time.monotonic() - ultimo_envio_nuvem >= 1.0:
+                                ultimo_envio_nuvem = time.monotonic()
+                                self._enviar_para_nuvem(cliente, loaded_model, X, predicao, predicao_anterior,
+                                                        ear_comp, mar_comp, perclos_val, pitch_comp, yaw_comp, roll_comp)
+                                predicao_anterior = predicao
                         if predicao == 1:
                             state = "SONO!"
                             message_color = (0, 0, 255)
@@ -224,3 +234,30 @@ class FeatureEngineering:
             df_log = self.utils.create_dataframe_from_list(features_data_log,['ear_behavior','pitch_behavior','roll_behavior','prediction'])
             predictions = df_log.pop("prediction").to_numpy()
             self.utils.generate_model_test_log(df_log, predictions, 'label')
+
+    def _enviar_para_nuvem(self, cliente, loaded_model, X, predicao, predicao_anterior,
+                           ear, mar, perclos, pitch, yaw, roll) -> None:
+        """
+        Registra a leitura no cliente da AWS (uma por segundo, chamado pelo loop).
+
+        O envio em si roda em outra thread dentro do cliente: a webcam não
+        espera a rede. Qualquer falha aqui é registrada e ignorada, para não
+        derrubar o monitoramento.
+        """
+        try:
+            score = round(float(CloudPublisher.probabilidade_sono(loaded_model, X)[0]) * 100, 2)
+            estado = CloudPublisher.estado_da_predicao(predicao)
+            cliente.registrar_leitura(
+                ear=ear, mar=mar, perclos=perclos,
+                head_pitch=pitch, head_yaw=yaw, head_roll=roll,
+                score_fadiga=score, estado=estado,
+            )
+            if predicao == 1 and predicao_anterior != 1:
+                cliente.registrar_alerta(
+                    tipo=CloudPublisher.tipo_alerta(perclos, mar, pitch, self),
+                    gravidade=CloudPublisher.gravidade(score),
+                    score_fadiga=score,
+                    mensagem=f"PERCLOS {perclos:.2f}, MAR {mar:.2f}, pitch {pitch:.1f} graus.",
+                )
+        except Exception as e:
+            print(f"Aviso: falha ao registrar leitura para a AWS: {e}")

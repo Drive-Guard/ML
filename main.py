@@ -18,6 +18,8 @@ if __name__ == "__main__":
         orchestrator.train_models(file_to_train,model_filepath)
     elif behavior == 'EXTRACT':
         orchestrator.extract_features(train_video_filepath)
+    elif behavior == 'PUBLISH':
+        orchestrator.publish_to_cloud(model_filepath, file_to_train)
     else:
         print('Configure corretamente o arquivo .env')
         

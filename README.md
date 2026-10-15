@@ -1,142 +1,79 @@
 # DriveGuard ML
 
-## 🚗 O que é este projeto
+Aplicação Python para extração de características faciais de vídeos e treinamento de classificadores de sonolência. O ponto de entrada é `main.py`, que seleciona uma operação por variáveis de ambiente.
 
-DriveGuard ML é um repositório Python para deteção de sonolência do condutor usando extração de características faciais a partir de vídeo e webcam. O projeto também traz um esqueleto para um modelo de detecção de acidentes, mas o foco principal é a extração de features, treinamento de modelo e teste em tempo real.
+## Funcionalidades atuais
 
----
+- Extração de `EAR`, `MAR`, pose da cabeça (`pitch`, `yaw`, `roll`) e `PERCLOS` com MediaPipe Face Landmarker.
+- Treinamento de um classificador de votação (Random Forest + XGBoost) ou de uma rede neural Keras.
+- Uso de webcam para utilização de modelo salvo.
+- Gravação de CSVs de extração e logs em `data/`.
 
-## 🔍 O que ele faz
+## Estrutura
 
-- Extrai características faciais de imagens ou vídeos usando o MediaPipe Face Landmarker.
-- Calcula métricas relacionadas à sonolência:
-  - `EAR` (Eye Aspect Ratio)
-  - `MAR` (Mouth Aspect Ratio)
-  - ângulos de pose da cabeça (`pitch`, `yaw`, `roll`)
-  - `PERCLOS` (percentual de fechamento dos olhos em uma janela)
-- Treina um classificador Random Forest com as features extraídas.
-- Executa inferência em tempo real via webcam para detectar se o condutor está com sono.
+- `main.py`: carrega `.env` e encaminha a execução.
+- `interfaces/BaseModelo.py`: pipeline comum, leitura dos dados e divisão por participante.
+- `models/DrowsinessDetectionVoting.py`: classificador Voting com Random Forest e XGBoost.
+- `models/DrowsinessDetectionNeuralNetwork.py`: classificador Keras via SciKeras.
+- `utilitaries/Orchestrator.py`: seleciona e executa modelo/operação.
+- `utilitaries/FeatureEngineering.py`: extração de features de vídeo e webcam.
+- `utilitaries/Utils.py`: operações com CSV, modelos e métricas.
+- `utilitaries/model_assets/face_landmarker.task`: arquivo do MediaPipe usado na detecção facial.
+- `data/`: datasets CSV, vídeos/imagens do conjunto UTA-RLDD e logs em `temp/`.
 
----
+## Instalação
 
-## 📁 Estrutura do repositório
-
-- `main.py` - script principal que carrega variáveis de ambiente e define o comportamento.
-- `requirements.txt` - dependências Python.
-- `data/` - local de armazenamento dos CSVs e arquivos temporários.
-  - `temp/` - logs e arquivos temporários.
-- `interfaces/` - definição da interface base de modelo.
-  - `BaseModelo.py`
-- `models/` - implementação dos modelos de machine learning.
-  - `DrowsinessDetection.py` - treina, testa e carrega o modelo de sonolência.
-  - `AccidentDetection.py` - pipeline de detecção de acidentes.
-- `utilitaries/` - helpers, engenharia de features e utilitários.
-  - `FeatureEngineering.py` - extrai as features faciais de imagem/vídeo/webcam.
-  - `Utils.py` - carregamento de dados, limpeza, relatórios e funções matemáticas.
-  - `model_assets/face_landmarker.task` - modelo MediaPipe para detecção facial.
-
----
-
-## ⚙️ Como funciona
-
-### Fluxo de detecção de sonolência
-
-1. `main.py` carrega as variáveis do arquivo `.env`.
-2. Se `MODEL_BEHAVIOR = EXTRACT_FEATURES`, o projeto extrai features de imagem ou vídeo.
-3. Se `MODEL_BEHAVIOR = TRAIN`, o projeto carrega o CSV de features, treina o modelo, avalia e salva o resultado.
-4. Se `MODEL_BEHAVIOR = TEST`, o projeto carrega um modelo treinado e executa inferência pela webcam.
-
-### Extração de features
-
-- Imagens: `FaceLandmarker` processa fotos categorizadas em pastas `active/` e `fatigue/`.
-- Vídeos: processa frames, calcula métricas e agrupa valores em janelas de tamanho fixo.
-- Webcam: captura frames em tempo real e aplica o modelo treinado para detectar sono.
-
----
-
-## 🧩 Variáveis de ambiente (`.env`)
-
-Crie um arquivo `.env` na raiz do repositório a partir do `.env.template`.
-
-### Exemplo de `.env`
-
-```env
-MODEL_FILEPATH="data/saved_model.joblib"
-FILE_TO_TRAIN_MODEL="data/features_data_video_trusted.csv"
-MODEL_TRAIN_IMAGE_FILEPATH="data/train_images"
-MODEL_TEST_IMAGE_FILEPATH="data/test_images"
-MODEL_TRAIN_VIDEO_FILEPATH="data/train_videos"
-MODEL_BEHAVIOR="TRAIN"
-FEATURE_EXTRACTION_TYPE="VIDEO"
-```
-
-### Variáveis obrigatórias
-
-- `MODEL_BEHAVIOR` - define o modo de execução:
-  - `TEST` → testa o modelo na webcam.
-  - `TRAIN` → treina o modelo a partir das features.
-  - `EXTRACT_FEATURES` → extrai features de vídeo ou imagem.
-- `MODEL_FILEPATH` - caminho para salvar ou carregar o modelo treinado.
-
-### Variáveis para extração de features
-
-- `FEATURE_EXTRACTION_TYPE` - `VIDEO` ou `IMAGE` (usado quando `MODEL_BEHAVIOR=EXTRACT_FEATURES`).
-- `MODEL_TRAIN_VIDEO_FILEPATH` - caminho da pasta ou arquivo de vídeo para extração.
-- `MODEL_TRAIN_IMAGE_FILEPATH` - caminho da pasta de imagens para extração.
-
-### Variável para treino
-
-- `FILE_TO_TRAIN_MODEL` - caminho do CSV com as features já extraídas para treinar o modelo.
-
----
-
-## ▶️ Como executar
-
-1. Instale as dependências:
+Use uma versão de Python compatível com as dependências e instale os pacotes declarados:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure o arquivo `.env` com o comportamento desejado.
+O arquivo `utilitaries/model_assets/face_landmarker.task` precisa estar presente. Execute os comandos a partir da raiz do repositório, pois o caminho do asset é relativo ao diretório atual.
 
-3. Execute:
+## Configuração e execução
+
+Crie `.env` na raiz com as variáveis correspondentes à operação. `.env.template` lista possíveis chaves, mas os caminhos estão vazios e algumas chaves listadas não são usadas pelo código.
+
+| Variável | Uso |
+| --- | --- |
+| `MODEL_BEHAVIOR` | Obrigatória. Valores aceitos: `EXTRACT`, `TRAIN` ou `TEST`. |
+| `MODEL_FILEPATH` | Obrigatória. Caminho do modelo a salvar/carregar; também escolhe o classificador pelo nome do arquivo. |
+| `FILE_TO_TRAIN_MODEL` | CSV informado no modo `TRAIN`. |
+| `MODEL_TRAIN_VIDEO_FILEPATH` | Diretório de vídeos informado no modo `EXTRACT`. |
+
+O nome em `MODEL_FILEPATH` deve conter `voting` ou `neural_network` para selecionar o classificador correspondente. Por exemplo, `data/voting_model.joblib` seleciona Voting. Se nenhum dos termos aparecer, o orquestrador instancia os dois modelos, mas o fluxo de treino/teste usa o primeiro (Voting).
+
+Configure o modo desejado e execute:
 
 ```bash
 python main.py
 ```
 
----
+### Extrair features de vídeo
 
-## 🧪 Fluxos típicos de uso
+```env
+MODEL_BEHAVIOR=EXTRACT
+MODEL_TRAIN_VIDEO_FILEPATH= Local dos arquivos usados para realizar a extração de features
+```
 
-### 1) Extrair features de vídeo
+O diretório informado deve conter as subpastas `active/` e `fatigue/`, com os vídeos dentro delas. O rótulo do CSV é calculado pelas regras de EAR/PERCLOS, MAR e pitch; o nome da subpasta não é usado para definir o rótulo.
 
-- `MODEL_BEHAVIOR=EXTRACT_FEATURES`
-- `FEATURE_EXTRACTION_TYPE=VIDEO`
-- `MODEL_TRAIN_VIDEO_FILEPATH` = pasta/arquivo de vídeos
+### Treinar
 
-### 2) Extrair features de imagem
+```env
+MODEL_BEHAVIOR=TRAIN
+MODEL_FILEPATH= CSV de features
+FILE_TO_TRAIN_MODEL= Local selecionado para salvar o modelo
+```
 
-- `MODEL_BEHAVIOR=EXTRACT_FEATURES`
-- `FEATURE_EXTRACTION_TYPE=IMAGE`
-- `MODEL_TRAIN_IMAGE_FILEPATH` = pasta de imagens
+O treino lê o CSV somente quando o nome do arquivo é exatamente `features_video_train.csv`. O CSV precisa conter `participant_id`, `label`, `ear_behavior`, `pitch_behavior` e `roll_behavior`. Outros caminhos recebidos nesse modo são tratados como entrada de vídeo para extração, não como CSV de treino. Como a extração gera `features_video_enhanced_train.csv`, esse arquivo não é consumido diretamente pelo fluxo de treino atual sem adequar o nome/fluxo.
 
-### 3) Treinar o modelo
+### Testar pela webcam
 
-- `MODEL_BEHAVIOR=TRAIN`
-- `FILE_TO_TRAIN_MODEL` = CSV de features
-- `MODEL_FILEPATH` = local para salvar o modelo (`.joblib`)
+```env
+MODEL_BEHAVIOR=TEST
+MODEL_FILEPATH= Local do modelo já treinado
+```
 
-### 4) Testar com webcam
-
-- `MODEL_BEHAVIOR=TEST`
-- `MODEL_FILEPATH` = caminho para um modelo já treinado
-
----
-
-## 💡 Observações importantes
-
-- `main.py` usa `python-dotenv` para carregar as variáveis do `.env`.
-- É necessário ter o arquivo de modelo MediaPipe em `utilitaries/model_assets/face_landmarker.task`.
-- O `AccidentDetection.py` está presente no repositório, mas não é chamado diretamente por `main.py`.
+Esse modo requer webcam e um modelo previamente salvo que é utilizado para capturar os valores do rosto e classificar em alerta ou sonolento.

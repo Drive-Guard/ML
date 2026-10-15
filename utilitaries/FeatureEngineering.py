@@ -19,16 +19,18 @@ class FeatureEngineering:
         self.WINDOW_PITCH = 40
         self.WINDOW_MAR = 60
         self.WINDOW_PERCLOS = 1200
-        self.TARGET_MINUTES = [1,2,3]
+        self.TARGET_MINUTES = [1,2,8,9]
         self.WINDOW_SIZE = 15
         self.PROP_FRAME_WIDTH = 640
         self.PROP_FRAME_HEIGHT = 480
         self.PERCLOS_SECONDS = 60
         self.PERCLOS_THRESHOLD = 0.15
-        self.YAWN_THRESHOLD = 0.6
-        self.HEAD_DROP_THRESHOLD = 20
+        self.YAWN_THRESHOLD = 0.60
+        self.HEAD_DROP_THRESHOLD = -15
         self.ALERT_PERCLOS_THRESHOLD = 0.02
-        self.CLOSED_MOUTH_THRESHOLD = 0.1
+        self.CLOSED_MOUTH_THRESHOLD = 0.10
+        self.YAW_THRESHOLD = 30
+        self.ROLL_THRESHOLD = 25
         base_options = python.BaseOptions(model_asset_path= 'utilitaries/model_assets/face_landmarker.task')
         self.face_landmarker_options = vision.FaceLandmarkerOptions(base_options=base_options,
                                             output_face_blendshapes=True,
@@ -45,7 +47,7 @@ class FeatureEngineering:
     
     def separate_files(self,folder_map:map) -> list:
         videos = []
-        for folder in folder_map.items():
+        for label,folder in folder_map.items():
             files = [f for f in folder.iterdir() if f.is_file()]
             for f in files:
                 videos.append(f)
@@ -67,8 +69,8 @@ class FeatureEngineering:
         df.loc[alert_condition, 'label'] = 0
 
         sleep_condition = (
-            (df['perclos'] >= self.PERCLOS_THRESHOLD) | 
-            (df['mar_behavior'] >= self.YAWN_THRESHOLD) | 
+            (df['perclos'] >= self.PERCLOS_THRESHOLD) |
+            (df['mar_behavior'] >= self.YAWN_THRESHOLD) |
             (df['pitch_behavior'] <= self.HEAD_DROP_THRESHOLD) 
         )
         df.loc[sleep_condition, 'label'] = 1
@@ -136,7 +138,7 @@ class FeatureEngineering:
                 cap.release()
         df = self.utils.create_dataframe_from_list(features, columns=["participant_id","minute","frame","ear","mar","pitch","yaw","roll","perclos"])
         df = self.adjust_label_column(df)
-        self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
+        self.utils.transform_dataframe_to_csv(df, 'train', 'features_video_enhanced')
 
     def extract_features_from_webcam(self,model) -> None:
         loaded_model = self.utils.load_model(model)
@@ -193,7 +195,7 @@ class FeatureEngineering:
                             'mar_behavior': mar_comp,
                             'perclos': perclos_val
                         }])
-                        X = X_teste[['ear_behavior','pitch_behavior','mar_behavior','perclos']]
+                        X = X_teste[['ear_behavior','pitch_behavior','roll_behavior']]
                         pred = int(loaded_model.predict(X)[0])
                         predicao = 1 if pred == 1 else 0
                         features_data_log.append([ear_comp,pitch_comp,mar_comp,perclos_val,predicao])

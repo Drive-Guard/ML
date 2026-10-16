@@ -31,6 +31,9 @@ class FeatureEngineering:
         self.PERCLOS_THRESHOLD = 0.15
         self.YAWN_THRESHOLD = 0.60
         self.HEAD_DROP_THRESHOLD = -15
+        # 3 = alerta / fadiga / sonolento (padrão); 2 = rótulo binário antigo,
+        # que descartava as linhas intermediárias.
+        self.NUM_CLASSES = int(os.getenv("DRIVEGUARD_CLASSES", "3"))
         self.ALERT_PERCLOS_THRESHOLD = 0.02
         self.CLOSED_MOUTH_THRESHOLD = 0.10
         self.YAW_THRESHOLD = 30
@@ -69,6 +72,11 @@ class FeatureEngineering:
         df['roll_behavior'] = df.groupby('participant_id')['roll'].transform(lambda x: x.rolling(window=40, min_periods=1).median())
         df['mar_behavior'] = df.groupby('participant_id')['mar'].transform(lambda x: x.rolling(window=60, min_periods=1).mean())
         df['label'] = np.nan
+        # Com 3 classes, o que não é alerta nem sono é fadiga (classe 1): PERCLOS
+        # entre os dois limiares, boca entreaberta sem chegar ao bocejo ou cabeça
+        # começando a cair. No rótulo binário essas linhas eram descartadas.
+        if self.NUM_CLASSES == 3:
+            df['label'] = 1
 
         alert_condition = (
             (df['perclos'] <= self.ALERT_PERCLOS_THRESHOLD) & 
@@ -82,7 +90,7 @@ class FeatureEngineering:
             (df['mar_behavior'] >= self.YAWN_THRESHOLD) |
             (df['pitch_behavior'] <= self.HEAD_DROP_THRESHOLD) 
         )
-        df.loc[sleep_condition, 'label'] = 1
+        df.loc[sleep_condition, 'label'] = 2 if self.NUM_CLASSES == 3 else 1
         return df.dropna(subset=['label']).copy()
     
     def fill_blink_columns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -185,7 +193,7 @@ class FeatureEngineering:
         yaw_buffer = deque(maxlen=self.WINDOW_PITCH)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         ultimo_envio_nuvem = 0.0
-        predicao_anterior = 0
+        estado_anterior = 'alerta'
         blinks = BlinkDetector(limiar_ear=self.EAR_THRESHOLD)
         distracao = DistractionDetector(limiar_yaw=self.YAW_THRESHOLD)
         ultimo_alerta = {}
@@ -243,19 +251,22 @@ class FeatureEngineering:
                             'roll_behavior': roll_comp,
                         }])
                         X = X_teste[['ear_behavior','pitch_behavior','roll_behavior']]
-                        pred = int(loaded_model.predict(X)[0])
-                        predicao = 1 if pred == 1 else 0
+                        estado, score = CloudPublisher.avaliar(loaded_model, X)[0]
+                        predicao = CloudPublisher.CODIGO_ESTADO[estado]
                         features_data_log.append([ear_comp,pitch_comp,roll_comp,predicao])
                         if cliente is not None:
                             if time.monotonic() - ultimo_envio_nuvem >= 1.0:
                                 ultimo_envio_nuvem = time.monotonic()
-                                self._enviar_para_nuvem(cliente, loaded_model, X, predicao, predicao_anterior,
+                                self._enviar_para_nuvem(cliente, estado, score, estado_anterior,
                                                         ear_comp, mar_comp, perclos_val, pitch_comp, yaw_comp, roll_comp,
                                                         piscadas['blink_rate'], piscadas['duracao_olhos_fechados_ms'])
-                                predicao_anterior = predicao
-                        if predicao == 1:
+                                estado_anterior = estado
+                        if estado == 'sonolento':
                             state = "SONO!"
                             message_color = (0, 0, 255)
+                        elif estado == 'fadiga':
+                            state = "FADIGA"
+                            message_color = (0, 165, 255)
                         
                         cv2.putText(frame, f"EAR: {ear_comp:.2f}", (10, 30), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
                         cv2.putText(frame, f"MAR: {mar_comp:.2f}", (10, 45), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
@@ -325,7 +336,7 @@ class FeatureEngineering:
         except Exception as e:
             print(f"Aviso: falha ao registrar alerta para a AWS: {e}")
 
-    def _enviar_para_nuvem(self, cliente, loaded_model, X, predicao, predicao_anterior,
+    def _enviar_para_nuvem(self, cliente, estado, score, estado_anterior,
                            ear, mar, perclos, pitch, yaw, roll, blink_rate=None, duracao_olhos_fechados_ms=None) -> None:
         """
         Registra a leitura no cliente da AWS (uma por segundo, chamado pelo loop).
@@ -335,15 +346,13 @@ class FeatureEngineering:
         derrubar o monitoramento.
         """
         try:
-            score = round(float(CloudPublisher.probabilidade_sono(loaded_model, X)[0]) * 100, 2)
-            estado = CloudPublisher.estado_da_predicao(predicao)
             cliente.registrar_leitura(
                 ear=ear, mar=mar, perclos=perclos,
                 head_pitch=pitch, head_yaw=yaw, head_roll=roll,
                 score_fadiga=score, estado=estado,
                 blink_rate=blink_rate, duracao_olhos_fechados_ms=duracao_olhos_fechados_ms,
             )
-            if predicao == 1 and predicao_anterior != 1:
+            if estado == 'sonolento' and estado_anterior != 'sonolento':
                 cliente.registrar_alerta(
                     tipo=CloudPublisher.tipo_alerta(perclos, mar, pitch, self),
                     gravidade=CloudPublisher.gravidade(score),

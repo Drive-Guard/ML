@@ -81,7 +81,7 @@ MODEL_BEHAVIOR=TEST
 MODEL_FILEPATH= Local do modelo já treinado
 ```
 
-Esse modo requer webcam e um modelo previamente salvo que é utilizado para capturar os valores do rosto e classificar em alerta ou sonolento.
+Esse modo requer webcam e um modelo previamente salvo que é utilizado para capturar os valores do rosto e classificar em alerta, fadiga ou sonolento.
 
 ## Integração com a AWS
 
@@ -101,7 +101,7 @@ O modelo pode enviar as leituras para a nuvem do DriveGuard, provisionada no rep
 
 ### Modo `TEST` com envio
 
-Com as variáveis preenchidas, o modo `TEST` envia uma leitura por segundo enquanto a webcam roda, mais um alerta toda vez que o modelo passa de acordado para sono. A classificação e o aviso na tela não dependem da rede: o envio acontece numa thread separada e, se falhar, o lote fica em `data/temp/buffer_offline.jsonl` e é reenviado ao fim da sessão.
+Com as variáveis preenchidas, o modo `TEST` envia uma leitura por segundo enquanto a webcam roda, mais um alerta toda vez que o modelo entra em `sonolento`. O estado `fadiga` aparece na tela (em laranja) e vai para o dashboard, mas não gera alerta. A classificação e o aviso na tela não dependem da rede: o envio acontece numa thread separada e, se falhar, o lote fica em `data/temp/buffer_offline.jsonl` e é reenviado ao fim da sessão.
 
 ### Modo `PUBLISH`
 
@@ -117,11 +117,25 @@ Envia o modelo para o S3 e, se um CSV for informado, classifica as linhas com o 
 
 | Campo | Origem |
 | --- | --- |
-| `estado` | `predict()` do modelo: 0 → `alerta`, 1 → `sonolento` |
-| `score_fadiga` | `100 × P(sono)` |
+| `estado` | `predict()` do modelo: 0 → `alerta`, 1 → `fadiga`, 2 → `sonolento` |
+| `score_fadiga` | `100 × (P(sono) + 0,5 × P(fadiga))` |
 | `ear`, `mar`, `perclos`, `head_pitch`, `head_yaw`, `head_roll` | Valores suavizados pelas mesmas janelas usadas na predição |
 
-`P(sono)` vem de `predict_proba`. Em modelos com `voting="hard"`, que não têm `predict_proba`, ela é a média das probabilidades dos membros do ensemble (RF e XGBoost). A classe enviada continua sendo a do `predict()`; só o score vem dessa média.
+As probabilidades vêm de `predict_proba`. Em modelos com `voting="hard"`, que não têm `predict_proba`, elas são a média das probabilidades dos membros do ensemble (RF e XGBoost). A classe enviada continua sendo a do `predict()`; só o score vem dessa média.
+
+### Três estados: alerta, fadiga e sonolento
+
+O rótulo do dataset é feito por regras (`FeatureEngineering.adjust_label_column`): **alerta** quando PERCLOS, boca e cabeça estão todos no normal, **sonolento** quando PERCLOS, bocejo ou cabeça baixa passam do limite. Antes, as linhas que não eram nenhum dos dois eram descartadas; agora elas formam a classe **fadiga** (PERCLOS entre 0,02 e 0,15, boca entreaberta sem bocejo, cabeça começando a cair). Assim o modelo aprende o meio-termo em vez de só "acordado ou dormindo".
+
+| Classe | Estado | Condição do rótulo |
+| --- | --- | --- |
+| 0 | `alerta` | PERCLOS ≤ 0,02, MAR ≤ 0,10 e pitch > −5° |
+| 1 | `fadiga` | nenhuma das duas outras |
+| 2 | `sonolento` | PERCLOS ≥ 0,15, MAR ≥ 0,60 ou pitch ≤ −15° |
+
+`DRIVEGUARD_CLASSES=3` é o padrão (Voting com RF + XGBoost e a rede neural, com saída softmax de 3 posições). `DRIVEGUARD_CLASSES=2` volta ao rótulo binário. Para ter o modelo de 3 classes é preciso **treinar de novo** (`MODEL_BEHAVIOR=TRAIN`) com o CSV do modo `EXTRACT`.
+
+Os `.pkl` binários já salvos (até a v3) continuam funcionando: o estado sai de faixas de `P(sono)`, com os mesmos cortes do score: abaixo de 0,40 `alerta`, de 0,40 a 0,70 `fadiga`, a partir de 0,70 `sonolento`.
 
 Nenhuma imagem sai da máquina, só os números acima.
 

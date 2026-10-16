@@ -5,6 +5,9 @@ Aplicação Python para extração de características faciais de vídeos e trei
 ## Funcionalidades atuais
 
 - Extração de `EAR`, `MAR`, pose da cabeça (`pitch`, `yaw`, `roll`) e `PERCLOS` com MediaPipe Face Landmarker.
+- Detecção de piscadas (`BlinkDetector`): piscadas por minuto, duração média, piscadas lentas e fechamento prolongado (microssono).
+- Detecção de distração (`DistractionDetector`): cabeça virada ou baixa sem olho fechado por 2 s, e rosto fora da câmera.
+- Modelo preditivo de base (`FatiguePrediction`): probabilidade de o score passar do limite de alerta nos próximos 15 minutos.
 - Treinamento de um classificador de votação (Random Forest + XGBoost) ou de uma rede neural Keras.
 - Uso de webcam para utilização de modelo salvo.
 - Gravação de CSVs de extração e logs em `data/`.
@@ -37,7 +40,9 @@ Crie `.env` na raiz com as variáveis correspondentes à operação. `.env.templ
 
 | Variável | Uso |
 | --- | --- |
-| `MODEL_BEHAVIOR` | Obrigatória. Valores aceitos: `EXTRACT`, `TRAIN` ou `TEST`. |
+| `MODEL_BEHAVIOR` | Obrigatória. Valores aceitos: `EXTRACT`, `TRAIN`, `TEST`, `PUBLISH` ou `TRAIN_PREDICTIVE`. |
+| `PREDICTIVE_TRAIN_FILE` | CSV de leituras para `TRAIN_PREDICTIVE` (`sintetico` usa dados gerados). |
+| `PREDICTIVE_MODEL_FILEPATH` | Onde salvar o modelo preditivo. |
 | `MODEL_FILEPATH` | Obrigatória. Caminho do modelo a salvar/carregar; também escolhe o classificador pelo nome do arquivo. |
 | `FILE_TO_TRAIN_MODEL` | CSV informado no modo `TRAIN`. |
 | `MODEL_TRAIN_VIDEO_FILEPATH` | Diretório de vídeos informado no modo `EXTRACT`. |
@@ -120,3 +125,65 @@ Envia o modelo para o S3 e, se um CSV for informado, classifica as linhas com o 
 
 Nenhuma imagem sai da máquina, só os números acima.
 
+
+
+## Piscadas, distração e alertas na cabine
+
+`utilitaries/BlinkDetector.py` processa o EAR **cru** de cada quadro (a média de 10
+quadros usada pelo classificador apagaria uma piscada de 150 ms) com o instante do
+quadro. Limiares: olho fechado com EAR < 0,20; piscada de 50 ms até 1 s; piscada
+lenta a partir de 300 ms; fechamento prolongado (microssono) a partir de 1 s, sinalizado
+**durante** o fechamento. Taxa em janela deslizante de 60 s.
+
+`utilitaries/DistractionDetector.py`: distração é |yaw| ≥ 30° ou pitch ≤ −20° com o
+olho aberto (celular no colo) por 2 s — cabeça baixa com olho fechado é sono, fica com
+o modelo. Sem rosto por 3 s gera `perda_de_face`.
+
+No modo `TEST` (webcam) as métricas aparecem na tela e, com a integração da AWS
+configurada, vão em cada leitura (`blink_rate`, `duracao_olhos_fechados_ms`). Os
+eventos `fechamento_prolongado`, `piscadas_excessivas` (≥ 30/min ou ≥ 4 lentas no
+minuto), `distracao` e `perda_de_face` geram alerta na tela e na nuvem, com intervalo
+mínimo de 30 s por tipo. Esses alertas independem do classificador; o modelo
+treinado (`ear/pitch/roll_behavior`) não muda.
+
+A extração de vídeo (`EXTRACT`) passa a gravar também `blink_rate`,
+`blink_duration_ms`, `slow_blinks` e `eye_closure_ms`, para uma próxima versão do
+classificador poder usar.
+
+## Modelo preditivo (linha de base)
+
+`models/FatiguePrediction.py` responde: **o motorista vai passar do limite de alerta
+(score 70) nos próximos 15 minutos?** Para cada minuto do turno, com 10 minutos de
+histórico, usa horas ao volante, hora do dia (seno/cosseno, ritmo circadiano), score
+médio de 5 e 15 min, tendência (pontos/min), máximo de 15 min, minutos acima do limite
+em 30 min, PERCLOS e piscadas/min. Treina só com minutos ainda abaixo do limite (prever
+a transição) com `HistGradientBoostingClassifier` e validação separada por turno.
+
+Entrada: CSV `;` com `turno_id;registrado_em;score_fadiga;perclos;blink_rate`, o formato
+de `silver.leituras_fadiga` no banco do DriveGuard:
+
+```sql
+SELECT turno_id, registrado_em, score_fadiga, perclos, blink_rate
+  FROM silver.leituras_fadiga ORDER BY turno_id, registrado_em;
+```
+
+```env
+MODEL_BEHAVIOR=TRAIN_PREDICTIVE
+PREDICTIVE_TRAIN_FILE=sintetico        # ou o CSV exportado
+PREDICTIVE_MODEL_FILEPATH=models/saved_models/fatigue_prediction.pkl
+```
+
+Enquanto não houver turnos reais suficientes, `gerar_dataset_sintetico()` produz
+leituras com os padrões da literatura só para exercitar o pipeline. O arquivo
+`models/saved_models/fatigue_prediction_sintetico.pkl` foi treinado assim (ROC AUC 0,99
+em dados sintéticos — **não vale como resultado**; é preciso retreinar com dados reais).
+
+## Testes
+
+```bash
+pip install numpy pandas scikit-learn joblib pytest
+python -m pytest tests
+```
+
+Os testes cobrem os detectores (séries sintéticas de EAR e pose) e o pipeline do
+preditivo, sem precisar de webcam, MediaPipe ou TensorFlow.

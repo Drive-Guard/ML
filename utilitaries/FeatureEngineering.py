@@ -9,6 +9,8 @@ import pandas as pd
 from collections import deque
 from utilitaries.Utils import Utils
 from utilitaries import CloudPublisher
+from utilitaries.BlinkDetector import BlinkDetector
+from utilitaries.DistractionDetector import DistractionDetector
 import os
 import time
 
@@ -33,6 +35,11 @@ class FeatureEngineering:
         self.CLOSED_MOUTH_THRESHOLD = 0.10
         self.YAW_THRESHOLD = 30
         self.ROLL_THRESHOLD = 25
+        # Piscadas e distração (ver BlinkDetector e DistractionDetector).
+        self.BLINK_RATE_HIGH = 30          # piscadas/min acima disso: piscadas excessivas
+        self.SLOW_BLINKS_HIGH = 4          # piscadas lentas (>= 300 ms) no último minuto
+        self.ALERT_COOLDOWN_S = 30         # intervalo mínimo entre alertas do mesmo tipo
+        self.BLINK_COLUMNS = ['blink_rate', 'blink_duration_ms', 'slow_blinks', 'eye_closure_ms']
         base_options = python.BaseOptions(model_asset_path= 'utilitaries/model_assets/face_landmarker.task')
         self.face_landmarker_options = vision.FaceLandmarkerOptions(base_options=base_options,
                                             output_face_blendshapes=True,
@@ -78,6 +85,18 @@ class FeatureEngineering:
         df.loc[sleep_condition, 'label'] = 1
         return df.dropna(subset=['label']).copy()
     
+    def fill_blink_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        As métricas de piscada só existem depois dos primeiros segundos de
+        cada trecho. O treino descarta linhas com vazio (dropna), então o
+        começo do trecho recebe o primeiro valor medido, e trecho sem nenhuma
+        piscada fica com 0.
+        """
+        grupos = df.groupby(['participant_id', 'minute'])
+        for coluna in self.BLINK_COLUMNS:
+            df[coluna] = grupos[coluna].transform(lambda s: s.bfill().ffill()).fillna(0)
+        return df
+
     def extract_features_from_video(self, video_path: str) -> None:
         features = []
         with FaceLandmarker.create_from_options(self.face_landmarker_options) as landmarker:
@@ -103,6 +122,7 @@ class FeatureEngineering:
                     yaw_buffer = deque(maxlen=self.WINDOW_PITCH)
                     mar_buffer = deque(maxlen=self.WINDOW_MAR)
                     perclos_buffer = deque(maxlen=self.WINDOW_PERCLOS)
+                    blinks = BlinkDetector(limiar_ear=self.EAR_THRESHOLD)
                     while frames_read < frames_to_process:
                         ret, capture = cap.read()
                         if not ret:
@@ -126,6 +146,10 @@ class FeatureEngineering:
                             mar_buffer.append(mar)
                             estado_olho = 1 if ear < self.EAR_THRESHOLD else 0
                             perclos_buffer.append(estado_olho)
+                            # O EAR cru (sem média) alimenta a piscada: a média
+                            # de 10 quadros apagaria uma piscada de 150 ms.
+                            blinks.atualizar(ear, frames_read / fps)
+                            metricas = blinks.metricas()
                             features.append({
                             'participant_id': participant_id,
                             'minute': target,
@@ -135,10 +159,15 @@ class FeatureEngineering:
                             'pitch': np.median(pitch_buffer),
                             'yaw': np.median(yaw_buffer),
                             'roll': np.median(roll_buffer),
-                            'perclos': np.array(perclos_buffer).mean()
+                            'perclos': np.array(perclos_buffer).mean(),
+                            'blink_rate': metricas['blink_rate'],
+                            'blink_duration_ms': metricas['duracao_media_ms'],
+                            'slow_blinks': metricas['piscadas_lentas'],
+                            'eye_closure_ms': metricas['duracao_olhos_fechados_ms'],
                         })
                 cap.release()
-        df = self.utils.create_dataframe_from_list(features, columns=["participant_id","minute","frame","ear","mar","pitch","yaw","roll","perclos"])
+        df = self.utils.create_dataframe_from_list(features, columns=["participant_id","minute","frame","ear","mar","pitch","yaw","roll","perclos"] + self.BLINK_COLUMNS)
+        df = self.fill_blink_columns(df)
         df = self.adjust_label_column(df)
         self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
 
@@ -157,6 +186,10 @@ class FeatureEngineering:
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         ultimo_envio_nuvem = 0.0
         predicao_anterior = 0
+        blinks = BlinkDetector(limiar_ear=self.EAR_THRESHOLD)
+        distracao = DistractionDetector(limiar_yaw=self.YAW_THRESHOLD)
+        ultimo_alerta = {}
+        aviso_tela = ('', 0.0)
 
         with FaceLandmarker.create_from_options(self.face_landmarker_options) as landmarker:
             while cap.isOpened():
@@ -173,6 +206,10 @@ class FeatureEngineering:
                 state = 'Acordado'
                 message_color = (0, 255, 0) 
                 
+                agora = time.monotonic()
+                eventos = []
+                if not (detection and detection.face_landmarks):
+                    eventos += distracao.atualizar(agora, rosto=False)
                 if detection and detection.face_landmarks:
                     ear = self.utils.calculate_eye_aspect_ratio(detection.face_landmarks[0])
                     mar = self.utils.calcular_mouth_aspect_ratio(detection.face_landmarks[0])
@@ -184,6 +221,10 @@ class FeatureEngineering:
                     roll_buffer.append(roll)
                     mar_buffer.append(mar)
                     perclos_buffer.append(1 if ear < self.EAR_THRESHOLD else 0)
+                    blinks.atualizar(ear, agora)
+                    if blinks.novo_fechamento_longo:
+                        eventos.append('fechamento_prolongado')
+                    eventos += distracao.atualizar(agora, rosto=True, yaw=float(yaw), pitch=float(pitch), olho_fechado=ear < self.EAR_THRESHOLD)
                     
                     if len(ear_buffer) >= self.WINDOW_EAR:                    
                         ear_comp = np.array(ear_buffer).mean()
@@ -192,6 +233,9 @@ class FeatureEngineering:
                         yaw_comp = np.median(yaw_buffer)
                         roll_comp = np.median(roll_buffer)
                         perclos_val = np.array(perclos_buffer).mean()
+                        piscadas = blinks.metricas()
+                        if (piscadas['blink_rate'] or 0) >= self.BLINK_RATE_HIGH or piscadas['piscadas_lentas'] >= self.SLOW_BLINKS_HIGH:
+                            eventos.append('piscadas_excessivas')
                         
                         X_teste = pd.DataFrame([{
                             'ear_behavior': ear_comp,
@@ -206,7 +250,8 @@ class FeatureEngineering:
                             if time.monotonic() - ultimo_envio_nuvem >= 1.0:
                                 ultimo_envio_nuvem = time.monotonic()
                                 self._enviar_para_nuvem(cliente, loaded_model, X, predicao, predicao_anterior,
-                                                        ear_comp, mar_comp, perclos_val, pitch_comp, yaw_comp, roll_comp)
+                                                        ear_comp, mar_comp, perclos_val, pitch_comp, yaw_comp, roll_comp,
+                                                        piscadas['blink_rate'], piscadas['duracao_olhos_fechados_ms'])
                                 predicao_anterior = predicao
                         if predicao == 1:
                             state = "SONO!"
@@ -218,7 +263,22 @@ class FeatureEngineering:
                         cv2.putText(frame, f"YAW: {yaw_comp:.2f}", (10, 75), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
                         cv2.putText(frame, f"ROLL: {roll_comp:.2f}", (10, 90), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
                         cv2.putText(frame, f"PERCLOS: {perclos_val:.2f}", (10, 105), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
+                        taxa = piscadas['blink_rate']
+                        cv2.putText(frame, f"PISCADAS/MIN: {taxa:.0f}" if taxa is not None else "PISCADAS/MIN: ...", (10, 120), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
+                        cv2.putText(frame, f"OLHO FECHADO: {blinks.olho_fechado_ms:.0f} ms", (10, 135), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, message_color, 2)
                         
+                # Alertas próprios da piscada e da distração: independem do
+                # classificador e saem com intervalo mínimo por tipo.
+                for evento in dict.fromkeys(eventos):
+                    if agora - ultimo_alerta.get(evento, -1e9) < self.ALERT_COOLDOWN_S:
+                        continue
+                    ultimo_alerta[evento] = agora
+                    aviso_tela = (self.MENSAGENS_EVENTO[evento], agora)
+                    if cliente is not None:
+                        self._registrar_evento(cliente, evento, blinks.metricas())
+                if aviso_tela[0] and agora - aviso_tela[1] < 3:
+                    cv2.putText(frame, aviso_tela[0], (10, 200), cv2.FONT_HERSHEY_COMPLEX, 0.8, (0, 165, 255), 2)
+
                 cv2.putText(frame, f"{state}", (10, 165), cv2.FONT_HERSHEY_COMPLEX, 1, message_color, 2)
                 for x,y,w,h in face:
                     cv2.rectangle(frame, (x, y), (x + w, y + h), message_color, 2)
@@ -235,8 +295,38 @@ class FeatureEngineering:
             predictions = df_log.pop("prediction").to_numpy()
             self.utils.generate_model_test_log(df_log, predictions, 'label')
 
+    MENSAGENS_EVENTO = {
+        'fechamento_prolongado': 'OLHOS FECHADOS!',
+        'piscadas_excessivas': 'PISCADAS LENTAS/FREQUENTES',
+        'distracao': 'OLHE PARA A ESTRADA',
+        'perda_de_face': 'ROSTO FORA DA CAMERA',
+    }
+
+    GRAVIDADE_EVENTO = {
+        'fechamento_prolongado': ('critica', 92.0),
+        'piscadas_excessivas': ('media', 65.0),
+        'distracao': ('alta', 75.0),
+        'perda_de_face': ('media', 60.0),
+    }
+
+    def _registrar_evento(self, cliente, evento: str, piscadas: dict) -> None:
+        """Registra como alerta um evento de piscada ou distração."""
+        try:
+            gravidade, score = self.GRAVIDADE_EVENTO[evento]
+            cliente.registrar_alerta(
+                tipo=evento,
+                gravidade=gravidade,
+                score_fadiga=score,
+                mensagem=(
+                    f"{piscadas['blink_rate'] or 0:.0f} piscadas/min, {piscadas['piscadas_lentas']} lentas, "
+                    f"fechamento de {piscadas['duracao_olhos_fechados_ms']} ms."
+                ),
+            )
+        except Exception as e:
+            print(f"Aviso: falha ao registrar alerta para a AWS: {e}")
+
     def _enviar_para_nuvem(self, cliente, loaded_model, X, predicao, predicao_anterior,
-                           ear, mar, perclos, pitch, yaw, roll) -> None:
+                           ear, mar, perclos, pitch, yaw, roll, blink_rate=None, duracao_olhos_fechados_ms=None) -> None:
         """
         Registra a leitura no cliente da AWS (uma por segundo, chamado pelo loop).
 
@@ -251,6 +341,7 @@ class FeatureEngineering:
                 ear=ear, mar=mar, perclos=perclos,
                 head_pitch=pitch, head_yaw=yaw, head_roll=roll,
                 score_fadiga=score, estado=estado,
+                blink_rate=blink_rate, duracao_olhos_fechados_ms=duracao_olhos_fechados_ms,
             )
             if predicao == 1 and predicao_anterior != 1:
                 cliente.registrar_alerta(

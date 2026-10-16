@@ -20,6 +20,9 @@ if __name__ == "__main__":
         orchestrator.extract_features(train_video_filepath)
     elif behavior == 'PUBLISH':
         orchestrator.publish_to_cloud(model_filepath, file_to_train)
+    elif behavior == 'TRAIN_PREDICTIVE':
+        orchestrator.train_predictive_model(os.getenv('PREDICTIVE_TRAIN_FILE', 'sintetico'),
+                                            os.getenv('PREDICTIVE_MODEL_FILEPATH', 'models/saved_models/fatigue_prediction.pkl'))
     else:
         print('Configure corretamente o arquivo .env')
         

@@ -150,6 +150,8 @@ class DriveGuardClient:
         head_yaw: float | None = None,
         head_roll: float | None = None,
         registrado_em: datetime | None = None,
+        blink_rate: float | None = None,
+        duracao_olhos_fechados_ms: int | None = None,
     ) -> None:
         """Adiciona uma leitura ao buffer e dispara o envio ao completar o lote."""
         if estado not in ESTADOS_VALIDOS:
@@ -163,6 +165,8 @@ class DriveGuardClient:
             "head_pitch": _arredondar(head_pitch, 2),
             "head_yaw": _arredondar(head_yaw, 2),
             "head_roll": _arredondar(head_roll, 2),
+            "blink_rate": _arredondar(blink_rate, 2),
+            "duracao_olhos_fechados_ms": int(duracao_olhos_fechados_ms) if duracao_olhos_fechados_ms is not None else None,
             "score_fadiga": _arredondar(score_fadiga, 2),
             "estado": estado,
         }

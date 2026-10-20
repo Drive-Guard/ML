@@ -61,28 +61,59 @@ def eh_binario(pipeline) -> bool:
 
 
 def probabilidades(pipeline, X: pd.DataFrame) -> np.ndarray:
-    """Matriz (linhas x classes) na ordem de `classes_`, qualquer que seja a votação."""
+    """Retorna probabilidades no formato (amostras, classes)."""
+
+    classes = _classes(pipeline)
+
+    if hasattr(pipeline, "predict_proba"):
+        P = np.asarray(
+            pipeline.predict_proba(X),
+            dtype=float
+        )
+                
+        # Uma amostra pode vir representada por um vetor
+        # com uma probabilidade para cada classe.
+        if P.ndim == 1:
+            if len(X) == 1 and P.size == len(classes):
+                P = P.reshape(1, -1)
+            else:
+                raise ValueError(
+                    "Formato inesperado de predict_proba: "
+                    f"P.shape={P.shape}, "
+                    f"X.shape={np.asarray(X).shape}, "
+                    f"classes={classes}. "
+                    "Esperado: (n_amostras, n_classes)."
+                )
+
+        if P.ndim != 2 or P.shape[1] != len(classes):
+            raise ValueError(
+                "Probabilidades incompatíveis com as classes: "
+                f"P.shape={P.shape}, classes={classes}"
+            )
+
+        return P
+
+    # Mantém o fallback existente para modelos sem predict_proba.
     final = pipeline[-1]
-
-    try:
-        return np.asarray(pipeline.predict_proba(X), dtype=float)
-    except AttributeError:
-        pass
-
-    # voting="hard": média das probabilidades dos membros treinados. Os
-    # membros de um VotingClassifier são treinados com os rótulos já
-    # codificados (0..n-1, na ordem de final.classes_), então as colunas
-    # batem com as do ensemble.
     membros = getattr(final, "estimators_", None)
+
     if membros:
         Xt = pipeline[:-1].transform(X)
-        probas = np.array([m.predict_proba(Xt) for m in membros])
-        return np.average(probas, axis=0, weights=getattr(final, "weights", None))
+        probas = np.array([
+            m.predict_proba(Xt) for m in membros
+        ])
+        return np.average(
+            probas,
+            axis=0,
+            weights=getattr(final, "weights", None)
+        )
 
-    # Sem probabilidade disponível: 1 na classe prevista.
-    classes = _classes(pipeline)
-    pred = np.asarray(pipeline.predict(X), dtype=float).astype(int)
-    return np.array([[1.0 if c == p else 0.0 for c in classes] for p in pred])
+    pred = np.asarray(pipeline.predict(X)).reshape(-1).astype(int)
+
+    return np.array([
+        [1.0 if c == p else 0.0 for c in classes]
+        for p in pred
+    ])
 
 
 def probabilidade_sono(pipeline, X: pd.DataFrame) -> np.ndarray:

@@ -16,9 +16,14 @@ Decisões de projeto:
 
 3. **Envio em lote, com buffer em disco.** Um caminhão passa horas sem sinal.
    As leituras se acumulam e sobem juntas; se o POST falhar, o lote vai para
-   o buffer offline e é reenviado depois.
+   o buffer offline e é reenviado depois. O tamanho do lote vem de
+   DRIVEGUARD_TAMANHO_LOTE (padrão 30 leituras, uma por segundo).
 
-4. **Nenhum dado pessoal sai do veículo.** O identificador do motorista e a
+4. **Alerta não espera o lote.** Quando o motorista entra em sonolento, o
+   alerta sobe junto com a próxima leitura, sem esperar o lote encher: a
+   central vê o alerta em segundos.
+
+5. **Nenhum dado pessoal sai do veículo.** O identificador do motorista e a
    placa são convertidos em SHA-256 antes de qualquer envio, e nenhuma imagem
    é transmitida: só as métricas numéricas.
 """
@@ -29,6 +34,7 @@ import hashlib
 import json
 import logging
 import re
+import socket
 import unicodedata
 import os
 import threading
@@ -42,6 +48,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 ESTADOS_VALIDOS = {"alerta", "fadiga", "sonolento"}
+TAMANHO_LOTE_PADRAO = 30
 
 
 def hash_identificador(valor: str) -> str:
@@ -71,7 +78,16 @@ def hash_motorista(motorista_id: str) -> str:
 
 def normalizar_dispositivo(device_id: str) -> str:
     """O DRIVEGUARD_DEVICE_ID como a dashboard grava: normalizado e em minúsculas."""
-    return normalizar_id(device_id).lower() or "dg-edge-0001"
+    return normalizar_id(device_id).lower() or dispositivo_padrao()
+
+
+def dispositivo_padrao() -> str:
+    """
+    Câmera padrão: dg-<nome do computador>. Cada notebook vira uma câmera
+    própria e nunca se mistura com dg-edge-0001 a 0040, as câmeras simuladas
+    da frota de demonstração.
+    """
+    return normalizar_id(f"dg-{socket.gethostname()}").lower() or "dg-notebook"
 
 
 def normalizar_placa(placa: str) -> str:
@@ -103,22 +119,22 @@ class DriveGuardClient:
         api_url: str,
         api_key: str,
         motorista_id: str,
-        device_id: str = "dg-edge-0001",
+        device_id: str | None = None,
         veiculo_placa: str | None = None,
         tipo_veiculo: str = "caminhao",
-        tamanho_lote: int = 30,
+        tamanho_lote: int = TAMANHO_LOTE_PADRAO,
         timeout: int = 10,
         max_tentativas: int = 3,
         buffer_offline: str | Path = "data/temp/buffer_offline.jsonl",
     ) -> None:
         self.api_url = api_url.rstrip("/")
         self.api_key = api_key
-        self.device_id = normalizar_dispositivo(device_id)
+        self.device_id = normalizar_dispositivo(device_id or dispositivo_padrao())
         self.motorista_hash = hash_motorista(motorista_id)
         self.veiculo_hash = hash_identificador(normalizar_placa(veiculo_placa)) if veiculo_placa else None
         self.tipo_veiculo = normalizar_tipo_veiculo(tipo_veiculo)
 
-        self.tamanho_lote = tamanho_lote
+        self.tamanho_lote = max(1, int(tamanho_lote))
         self.timeout = timeout
         self.max_tentativas = max_tentativas
 
@@ -160,9 +176,10 @@ class DriveGuardClient:
             api_url=api_url,
             api_key=api_key,
             motorista_id=motorista,
-            device_id=os.getenv("DRIVEGUARD_DEVICE_ID", "dg-edge-0001").strip() or "dg-edge-0001",
+            device_id=os.getenv("DRIVEGUARD_DEVICE_ID", "").strip() or None,
             veiculo_placa=os.getenv("DRIVEGUARD_PLACA", "").strip() or None,
             tipo_veiculo=os.getenv("DRIVEGUARD_TIPO_VEICULO", "caminhao").strip() or "caminhao",
+            tamanho_lote=_inteiro(os.getenv("DRIVEGUARD_TAMANHO_LOTE"), TAMANHO_LOTE_PADRAO),
         )
 
     # ------------------------------------------------------------------ estado
@@ -212,7 +229,8 @@ class DriveGuardClient:
 
         with self._lock:
             self._leituras.append(leitura)
-            cheio = len(self._leituras) >= self.tamanho_lote
+            # Alerta pendente sobe já, com esta leitura (o ETL exige ao menos uma).
+            cheio = len(self._leituras) >= self.tamanho_lote or bool(self._alertas)
 
         if cheio:
             self.enviar(assincrono=True)
@@ -236,6 +254,12 @@ class DriveGuardClient:
                     "mensagem": mensagem,
                 }
             )
+            tem_leitura = bool(self._leituras)
+
+        # O alerta não espera o lote: sobe agora com as leituras do buffer (ou
+        # com a próxima, se o buffer acabou de ser enviado).
+        if tem_leitura:
+            self.enviar(assincrono=True)
 
     # ------------------------------------------------------------------- envio
 
@@ -370,6 +394,13 @@ class DriveGuardClient:
             )
         logger.info("Buffer offline: %d lotes enviados, %d pendentes.", subiram, len(pendentes))
         return subiram
+
+
+def _inteiro(valor: str | None, padrao: int) -> int:
+    try:
+        return max(1, int(str(valor).strip()))
+    except (TypeError, ValueError):
+        return padrao
 
 
 def _arredondar(valor: Any, casas: int) -> float | None:

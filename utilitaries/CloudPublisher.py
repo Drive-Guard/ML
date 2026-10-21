@@ -16,8 +16,9 @@ loop da webcam. O que este módulo acrescenta:
 * **score de fadiga (0-100)**: `100 x (P(sono) + 0,5 x P(fadiga))` no modelo
   de 3 classes e `100 x P(sono)` no binário. É o que o dashboard usa para
   ordenar motoristas e desenhar a curva de fadiga, então precisa ser contínuo;
-* **publicação**: do modelo treinado no S3 e de um CSV de features já
-  extraídas na API de ingestão.
+* **publicação**: do modelo treinado no bucket de artefatos e de um CSV de
+  features já extraídas, ambos pela API de ingestão, só com a API Key (sem
+  credencial da AWS no computador).
 
 Sobre a probabilidade: um VotingClassifier com `voting="hard"` não expõe
 `predict_proba`. Nesse caso as probabilidades são a média (ponderada pelos
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -192,17 +194,31 @@ def tipo_alerta(perclos: float, mar: float, pitch: float, fe) -> str:
 # Publicação do modelo no S3
 # ---------------------------------------------------------------------------
 
-def publicar_modelo_s3(model_path: str, bucket: str | None = None) -> str | None:
+def publicar_modelo_s3(model_path: str, bucket: str | None = None, tentativas: int = 4) -> str | None:
     """
-    Envia o .pkl ao bucket de artefatos provisionado pelo repositório Infra,
-    numa pasta versionada por data e hora.
+    Envia o .pkl ao bucket de artefatos, numa pasta versionada por data e hora.
+
+    Pela API (padrão): pede a POST {DRIVEGUARD_API_URL}/modelos um link de
+    upload, com a mesma API Key das leituras, e manda o arquivo direto para o
+    S3 por esse link. Nenhuma credencial da AWS fica no computador. O link vale
+    alguns minutos e só para este arquivo: se vencer ou a rede cair no meio,
+    pede outro e tenta de novo, até `tentativas` vezes. O modelo continua
+    salvo no disco em qualquer caso.
+
+    Sem a API configurada, cai no caminho antigo (boto3 com
+    DRIVEGUARD_ARTIFACTS_BUCKET e credenciais da conta).
     """
+    api_url = os.getenv("DRIVEGUARD_API_URL", "").strip().rstrip("/")
+    api_key = os.getenv("DRIVEGUARD_API_KEY", "").strip()
+    if api_url and api_key:
+        return _publicar_modelo_api(Path(model_path), api_url, api_key, tentativas)
+
     bucket = bucket or os.getenv("DRIVEGUARD_ARTIFACTS_BUCKET", "").strip()
     if not bucket:
-        print("DRIVEGUARD_ARTIFACTS_BUCKET nao definido: modelo nao enviado ao S3.")
+        print("DRIVEGUARD_API_URL/DRIVEGUARD_API_KEY nao definidos: modelo nao enviado.")
         return None
 
-    import boto3  # só necessário neste modo
+    import boto3  # só no caminho antigo
 
     arquivo = Path(model_path)
     versao = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -212,6 +228,42 @@ def publicar_modelo_s3(model_path: str, bucket: str | None = None) -> str | None
     uri = f"s3://{bucket}/{chave}"
     print(f"Modelo publicado em {uri}")
     return uri
+
+
+def _publicar_modelo_api(arquivo: Path, api_url: str, api_key: str, tentativas: int) -> str | None:
+    import requests
+
+    if not arquivo.is_file():
+        print(f"Modelo nao encontrado: {arquivo}")
+        return None
+    tamanho = arquivo.stat().st_size
+    for tentativa in range(1, tentativas + 1):
+        try:
+            r = requests.post(
+                f"{api_url}/modelos",
+                json={"arquivo": arquivo.name, "tamanho": tamanho},
+                headers={"x-api-key": api_key},
+                timeout=15,
+            )
+            if r.status_code in (400, 403, 413, 422):
+                # Pedido recusado (nome, tamanho ou chave): tentar de novo não muda nada.
+                print(f"API recusou o envio do modelo (HTTP {r.status_code}): {r.text[:300]}")
+                return None
+            r.raise_for_status()
+            link = r.json()
+            with arquivo.open("rb") as f:
+                envio = requests.put(link["url"], data=f, headers=link["cabecalhos"], timeout=(15, 900))
+            if envio.status_code in (200, 204):
+                print(f"Modelo publicado em {link['uri']} ({tamanho / 1_048_576:.1f} MB)")
+                return link["uri"]
+            # 403 aqui é link vencido ou assinatura recusada: o próximo pedido gera outro.
+            logger.warning("Upload do modelo falhou (HTTP %s), tentativa %d de %d", envio.status_code, tentativa, tentativas)
+        except requests.RequestException as exc:
+            logger.warning("Upload do modelo falhou (%s), tentativa %d de %d", exc, tentativa, tentativas)
+        if tentativa < tentativas:
+            time.sleep(min(30, 2**tentativa))
+    print(f"Nao consegui enviar o modelo depois de {tentativas} tentativas; ele continua salvo em {arquivo}.")
+    return None
 
 
 # ---------------------------------------------------------------------------

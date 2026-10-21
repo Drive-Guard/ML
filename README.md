@@ -97,7 +97,7 @@ O modelo pode enviar as leituras para a nuvem do DriveGuard, provisionada no rep
 | `DRIVEGUARD_PLACA` | Opcional. Placa do veículo, também enviada só como hash. |
 | `DRIVEGUARD_DEVICE_ID` | ID da câmera, o mesmo da dashboard. Normalizado do mesmo jeito e em minúsculas (`Device_123` vira `device-123`). Padrão `dg-edge-0001`. |
 | `DRIVEGUARD_TIPO_VEICULO` | Opcional. `caminhao` (padrão), `onibus`, `van` ou `carro_app`; aceita também "Caminhão", "Ônibus", "Carro". |
-| `DRIVEGUARD_ARTIFACTS_BUCKET` | Bucket de artefatos (`terraform output -raw artifacts_bucket`), usado no modo `PUBLISH`. |
+| `DRIVEGUARD_ARTIFACTS_BUCKET` | Não precisa mais: o modo `PUBLISH` envia o modelo pela API, só com a API Key. Fica só como caminho antigo (boto3 com credenciais da conta) quando a API não está configurada. |
 | `DRIVEGUARD_PUBLISH_STEP` | No modo `PUBLISH`, envia uma linha a cada N do CSV. Padrão 30 (≈ 1 leitura por segundo de vídeo). |
 
 ### Modo `TEST` com envio
@@ -112,7 +112,7 @@ MODEL_FILEPATH= modelo treinado
 FILE_TO_TRAIN_MODEL= CSV gerado pelo modo EXTRACT (opcional)
 ```
 
-Envia o modelo para o S3 e, se um CSV for informado, classifica as linhas com o modelo e envia as leituras para a API. Cada `participant_id` vira um motorista no dashboard. Como os vídeos não têm horário real, o horário de cada leitura é reconstruído a partir de `minute` e `frame`, mantendo o intervalo real entre elas.
+Envia o modelo ao bucket de artefatos pela API (pede um link de upload em `POST /v1/modelos` com a API Key e manda o arquivo por ele; se o link vencer ou a rede cair, pede outro e tenta de novo, sem precisar de credencial da AWS) e, se um CSV for informado, classifica as linhas com o modelo e envia as leituras para a API. Cada `participant_id` vira um motorista no dashboard. Como os vídeos não têm horário real, o horário de cada leitura é reconstruído a partir de `minute` e `frame`, mantendo o intervalo real entre elas.
 
 ### O que é enviado
 

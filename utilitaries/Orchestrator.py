@@ -3,6 +3,8 @@ from models.DrowsinessDetectionVoting import DrowsinessDetectionVoting
 from models.DrowsinessDetectionNeuralNetwork import DrowsinessDetectionNeuralNetwork
 from utilitaries.DriveGuardClient import DriveGuardClient
 from utilitaries import CloudPublisher
+from models.FatiguePrediction import FatiguePrediction, gerar_dataset_sintetico
+import pandas as pd
 
 class Orchestrator:
     def __init__(self, model_filepath: str):
@@ -57,3 +59,15 @@ class Orchestrator:
             pipeline = self.feature_engineering.utils.load_model(model_path)
             total = CloudPublisher.publicar_dataset(pipeline, features_csv, self.feature_engineering)
             print(f"Publicacao finalizada: {total} leituras enviadas a API")
+
+    def train_predictive_model(self, leituras_csv: str, model_path: str):
+        """
+        Treina o modelo preditivo de base. `leituras_csv` = 'sintetico' usa o
+        gerador de dados sintéticos (só para exercitar o pipeline).
+        """
+        if not leituras_csv or leituras_csv.strip().lower() == 'sintetico':
+            print("Usando dados sintéticos: as métricas não valem como resultado.")
+            leituras = gerar_dataset_sintetico()
+        else:
+            leituras = pd.read_csv(leituras_csv, sep=';', encoding='utf-8')
+        FatiguePrediction().treinar(leituras, model_path)

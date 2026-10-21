@@ -28,6 +28,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import unicodedata
 import os
 import threading
 import time
@@ -50,6 +52,42 @@ def hash_identificador(valor: str) -> str:
     `placa_hash`. Irreversível: a nuvem nunca recebe o valor original.
     """
     return hashlib.sha256(str(valor).strip().encode("utf-8")).hexdigest()
+
+
+def normalizar_id(valor: str) -> str:
+    """
+    Mesma regra da dashboard (Backend, src/lib/identificadores.ts) e do ETL:
+    acentos saem, e espaço, ponto, sublinhado ou outro símbolo viram hífen.
+    "Caetano Resende", "caetano.resende" e "CAETANO_RESENDE" são o mesmo ID.
+    """
+    sem_acento = "".join(c for c in unicodedata.normalize("NFD", str(valor)) if not unicodedata.combining(c))
+    return re.sub(r"[^A-Za-z0-9]+", "-", sem_acento.strip()).strip("-")
+
+
+def hash_motorista(motorista_id: str) -> str:
+    """O que vai no lugar do DRIVEGUARD_MOTORISTA_ID: hash do ID normalizado, em minúsculas."""
+    return hash_identificador(normalizar_id(motorista_id).lower())
+
+
+def normalizar_dispositivo(device_id: str) -> str:
+    """O DRIVEGUARD_DEVICE_ID como a dashboard grava: normalizado e em minúsculas."""
+    return normalizar_id(device_id).lower() or "dg-edge-0001"
+
+
+def normalizar_placa(placa: str) -> str:
+    """"abc-1d23" -> "ABC1D23", igual ao cadastro de veículos."""
+    return re.sub(r"[^A-Z0-9]", "", str(placa).upper())
+
+
+TIPOS_VEICULO = {"caminhao", "onibus", "van", "carro_app"}
+APELIDOS_TIPO = {"carro": "carro_app", "carro-app": "carro_app", "app": "carro_app", "caminhoes": "caminhao", "truck": "caminhao", "bus": "onibus"}
+
+
+def normalizar_tipo_veiculo(tipo: str | None) -> str:
+    """Aceita "Caminhão", "ônibus", "Carro"...; o que não reconhecer vira caminhão."""
+    chave = normalizar_id(tipo or "").lower()
+    chave = APELIDOS_TIPO.get(chave, chave.replace("-", "_"))
+    return chave if chave in TIPOS_VEICULO else "caminhao"
 
 
 def agora_utc_iso(ts: datetime | None = None) -> str:
@@ -75,10 +113,10 @@ class DriveGuardClient:
     ) -> None:
         self.api_url = api_url.rstrip("/")
         self.api_key = api_key
-        self.device_id = device_id
-        self.motorista_hash = hash_identificador(motorista_id)
-        self.veiculo_hash = hash_identificador(veiculo_placa) if veiculo_placa else None
-        self.tipo_veiculo = tipo_veiculo
+        self.device_id = normalizar_dispositivo(device_id)
+        self.motorista_hash = hash_motorista(motorista_id)
+        self.veiculo_hash = hash_identificador(normalizar_placa(veiculo_placa)) if veiculo_placa else None
+        self.tipo_veiculo = normalizar_tipo_veiculo(tipo_veiculo)
 
         self.tamanho_lote = tamanho_lote
         self.timeout = timeout
@@ -150,6 +188,8 @@ class DriveGuardClient:
         head_yaw: float | None = None,
         head_roll: float | None = None,
         registrado_em: datetime | None = None,
+        blink_rate: float | None = None,
+        duracao_olhos_fechados_ms: int | None = None,
     ) -> None:
         """Adiciona uma leitura ao buffer e dispara o envio ao completar o lote."""
         if estado not in ESTADOS_VALIDOS:
@@ -163,6 +203,8 @@ class DriveGuardClient:
             "head_pitch": _arredondar(head_pitch, 2),
             "head_yaw": _arredondar(head_yaw, 2),
             "head_roll": _arredondar(head_roll, 2),
+            "blink_rate": _arredondar(blink_rate, 2),
+            "duracao_olhos_fechados_ms": int(duracao_olhos_fechados_ms) if duracao_olhos_fechados_ms is not None else None,
             "score_fadiga": _arredondar(score_fadiga, 2),
             "estado": estado,
         }

@@ -95,7 +95,8 @@ O modelo pode enviar as leituras para a nuvem do DriveGuard, provisionada no rep
 | `DRIVEGUARD_API_KEY` | Chave da API (`terraform output -raw api_key_value`). |
 | `DRIVEGUARD_MOTORISTA_ID` | ID do motorista, o mesmo código cadastrado na dashboard. É normalizado (sem acento; espaço, ponto e outros símbolos viram hífen; maiúsculas não importam) e convertido em SHA-256 antes do envio: `Caetano.Resende Domingues` e `caetano-resende-domingues` são o mesmo motorista. |
 | `DRIVEGUARD_PLACA` | Opcional. Placa do veículo, também enviada só como hash. |
-| `DRIVEGUARD_DEVICE_ID` | ID da câmera, o mesmo da dashboard. Normalizado do mesmo jeito e em minúsculas (`Device_123` vira `device-123`). Padrão `dg-edge-0001`. |
+| `DRIVEGUARD_DEVICE_ID` | ID da câmera, o mesmo da dashboard. Normalizado do mesmo jeito e em minúsculas (`Device_123` vira `device-123`). Padrão `dg-<nome do computador>`; não use `dg-edge-0001` a `0040`, que são as câmeras simuladas da frota de demonstração. |
+| `DRIVEGUARD_TAMANHO_LOTE` | Leituras por envio (uma por segundo). Padrão 30; na demonstração ao vivo, 5. O alerta de sonolência sobe na hora, sem esperar o lote. |
 | `DRIVEGUARD_TIPO_VEICULO` | Opcional. `caminhao` (padrão), `onibus`, `van` ou `carro_app`; aceita também "Caminhão", "Ônibus", "Carro". |
 | `DRIVEGUARD_ARTIFACTS_BUCKET` | Não precisa mais: o modo `PUBLISH` envia o modelo pela API, só com a API Key. Fica só como caminho antigo (boto3 com credenciais da conta) quando a API não está configurada. |
 | `DRIVEGUARD_PUBLISH_STEP` | No modo `PUBLISH`, envia uma linha a cada N do CSV. Padrão 30 (≈ 1 leitura por segundo de vídeo). |

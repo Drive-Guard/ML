@@ -93,9 +93,10 @@ O modelo pode enviar as leituras para a nuvem do DriveGuard, provisionada no rep
 | --- | --- |
 | `DRIVEGUARD_API_URL` | URL da API (`terraform output -raw api_invoke_url`). Liga o envio. |
 | `DRIVEGUARD_API_KEY` | Chave da API (`terraform output -raw api_key_value`). |
-| `DRIVEGUARD_MOTORISTA_ID` | Identificador do motorista. É convertido em SHA-256 antes do envio. |
+| `DRIVEGUARD_MOTORISTA_ID` | ID do motorista, o mesmo código cadastrado na dashboard. É normalizado (sem acento; espaço, ponto e outros símbolos viram hífen; maiúsculas não importam) e convertido em SHA-256 antes do envio: `Caetano.Resende Domingues` e `caetano-resende-domingues` são o mesmo motorista. |
 | `DRIVEGUARD_PLACA` | Opcional. Placa do veículo, também enviada só como hash. |
-| `DRIVEGUARD_DEVICE_ID` | Identificador do dispositivo. Padrão `dg-edge-0001`. |
+| `DRIVEGUARD_DEVICE_ID` | ID da câmera, o mesmo da dashboard. Normalizado do mesmo jeito e em minúsculas (`Device_123` vira `device-123`). Padrão `dg-edge-0001`. |
+| `DRIVEGUARD_TIPO_VEICULO` | Opcional. `caminhao` (padrão), `onibus`, `van` ou `carro_app`; aceita também "Caminhão", "Ônibus", "Carro". |
 | `DRIVEGUARD_ARTIFACTS_BUCKET` | Bucket de artefatos (`terraform output -raw artifacts_bucket`), usado no modo `PUBLISH`. |
 | `DRIVEGUARD_PUBLISH_STEP` | No modo `PUBLISH`, envia uma linha a cada N do CSV. Padrão 30 (≈ 1 leitura por segundo de vídeo). |
 

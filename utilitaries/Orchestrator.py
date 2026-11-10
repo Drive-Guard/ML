@@ -23,7 +23,7 @@ class Orchestrator:
                 if key in filepath_lower:
                     instances.append(model_class())
         if not instances:
-            print("Aviso: Nenhum modelo específico ('voting' ou 'neural_network') encontrado")
+            print("Aviso: Nenhum modelo específico ('voting' ou 'neural_network' encontrado")
             print("Instanciando TODOS os modelos disponíveis.")
             for model_class in self._available_models.values():
                 instances.append(model_class())

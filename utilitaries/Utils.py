@@ -112,8 +112,3 @@ class Utils:
     
     def load_model(self,model_path:str):
         return joblib.load(model_path)
-
-
-
-
-

@@ -2,6 +2,7 @@ import os
 from interfaces.BaseModelo import BaseModelo
 from scikeras.wrappers import KerasClassifier
 import tensorflow as tf
+import numpy as np
 
 TRES_CLASSES = int(os.getenv("DRIVEGUARD_CLASSES", "3")) == 3
 
@@ -10,11 +11,15 @@ class DrowsinessDetectionNeuralNetwork(BaseModelo):
         super().__init__()
         self.model_name = 'keras_classifier'
         self.pipeline_step_name = 'keras_classifier'
+        self.seed_keras = tf.random.set_seed(42)
+        self.seed_numpy = np.random.seed(42)
     @staticmethod
     def _build_keras_model():
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, activation='relu', input_shape=(3,)),
+            tf.keras.layers.Dense(128, activation='relu', input_shape=(3,)),
             tf.keras.layers.Dropout(0.3),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(32, activation='relu'),
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(3, activation='softmax') if TRES_CLASSES else tf.keras.layers.Dense(1, activation='sigmoid')

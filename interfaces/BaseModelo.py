@@ -4,7 +4,7 @@ from utilitaries.FeatureEngineering import FeatureEngineering
 import os
 from sklearn.pipeline import Pipeline
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import StratifiedGroupKFold
 
 class BaseModelo(ABC):
     def __init__(self) -> None:
@@ -34,13 +34,14 @@ class BaseModelo(ABC):
         self._model_name = value
 
     def train_model(self,file_path:str,model_path : str):
-        if os.path.basename(file_path) == 'features_video_train.csv':
+        if os.path.basename(file_path):
             print("Features já foram extraídas")
             df = self.utils.create_dataframe(file_path)
             self.X_train, self.X_test, self.y_train, self.y_test = self.split_data(df)
             model = self.create_model()
             pipeline = self.create_pipeline(model, self.pipeline_step_name)
             pipeline.fit(self.X_train, self.y_train)
+            self.test_model(pipeline)
             self.utils.save_model(pipeline, model_path)
         else:
             print("Extraindo features...")
@@ -53,7 +54,7 @@ class BaseModelo(ABC):
 
     def test_model(self,pipeline):
         y_pred = pipeline.predict(self.X_test)
-        step_name = self.get_step_name()
+        step_name = self.pipeline_step_name
         self.utils.create_model_evaluation_report(self.y_test, y_pred)
         self.utils.create_confusion_matrix(self.y_test, y_pred, pipeline.named_steps[step_name], self.model_name)
 
@@ -63,10 +64,10 @@ class BaseModelo(ABC):
         y = df["label"]
         groups = df["participant_id"]
 
-        gfk = GroupShuffleSplit(n_splits=6, test_size=0.3, random_state=42)
-        for train_idx, test_idx in gfk.split(X, y, groups):
-            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+        train_idx, test_idx = next(sgkf.split(X, y, groups=groups))
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
         return X_train, X_test, y_train, y_test
 
     

@@ -33,7 +33,6 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
@@ -145,7 +144,8 @@ def avaliar(pipeline, X: pd.DataFrame) -> list[tuple[str, float]]:
     """
     classes = _classes(pipeline)
     P = probabilidades(pipeline, X)
-
+    window_size = 7
+    pred_buffer = []
     if eh_binario(pipeline):
         scores = P[:, classes.index(CLASSE_SONO_BINARIO)] * 100
         return [(estado_por_score(s), round(float(s), 2)) for s in scores]
@@ -155,8 +155,18 @@ def avaliar(pipeline, X: pd.DataFrame) -> list[tuple[str, float]]:
 
     scores = (coluna(CLASSE_SONO) + 0.5 * coluna(CLASSE_FADIGA)) * 100
     pred = np.asarray(pipeline.predict(X), dtype=float).astype(int)
-    return [(ESTADOS[int(p)], round(float(s), 2)) for p, s in zip(pred, scores)]
 
+    # if pred[1] >= 0.22:
+    #     pred = 1
+    # else:
+    #     pred = int(np.argmax(pred))
+    # pred_buffer.append(pred)
+    # if len(pred_buffer) > window_size:
+    #     pred_buffer.pop(0)
+    # vals,counts = np.unique(pred_buffer, return_counts=True)
+    # smooth_pred = vals[np.argmax(counts)]
+    
+    return [(ESTADOS[int(p)], round(float(s), 2)) for p, s in zip(pred, scores)]
 
 def estado_da_predicao(pred, binario: bool = False) -> str:
     """Estado da API a partir da classe prevista."""

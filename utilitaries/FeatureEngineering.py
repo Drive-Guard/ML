@@ -38,6 +38,7 @@ class FeatureEngineering:
         self.CLOSED_MOUTH_THRESHOLD = 0.10
         self.YAW_THRESHOLD = 30
         self.ROLL_THRESHOLD = 25
+        self.PITCH_THRESHOLD = -4
         # Piscadas e distração (ver BlinkDetector e DistractionDetector).
         self.BLINK_RATE_HIGH = 30          # piscadas/min acima disso: piscadas excessivas
         self.SLOW_BLINKS_HIGH = 4          # piscadas lentas (>= 300 ms) no último minuto
@@ -65,32 +66,36 @@ class FeatureEngineering:
                 videos.append(f)
         return videos
 
-    def adjust_label_column(self,df:pd.DataFrame) -> pd.DataFrame:
+    def adjust_label_column(self, df: pd.DataFrame) -> pd.DataFrame:
         df['ear_behavior'] = df.groupby('participant_id')['ear'].transform(lambda x: x.rolling(window=10, min_periods=1).mean())
         df['pitch_behavior'] = df.groupby('participant_id')['pitch'].transform(lambda x: x.rolling(window=40, min_periods=1).median())
         df['yaw_behavior'] = df.groupby('participant_id')['yaw'].transform(lambda x: x.rolling(window=40, min_periods=1).median())
         df['roll_behavior'] = df.groupby('participant_id')['roll'].transform(lambda x: x.rolling(window=40, min_periods=1).median())
         df['mar_behavior'] = df.groupby('participant_id')['mar'].transform(lambda x: x.rolling(window=60, min_periods=1).mean())
-        df['label'] = np.nan
-        # Com 3 classes, o que não é alerta nem sono é fadiga (classe 1): PERCLOS
-        # entre os dois limiares, boca entreaberta sem chegar ao bocejo ou cabeça
-        # começando a cair. No rótulo binário essas linhas eram descartadas.
-        if self.NUM_CLASSES == 3:
-            df['label'] = 1
+        
+        self.NUM_CLASSES = 3
+        
+        # Inicializa tudo como Fadiga (Classe 1 - zona intermediária)
+        df['label'] = 1
 
+        # 1. Classe 0: Alerta (PERCLOS baixo < 0.07, olhos abertos e cabeça estável)
         alert_condition = (
-            (df['perclos'] <= self.ALERT_PERCLOS_THRESHOLD) & 
-            (df['mar_behavior'] <= self.CLOSED_MOUTH_THRESHOLD) &
-            (df['pitch_behavior'] > -5.0) 
+            (df['perclos'] < self.PERCLOS_THRESHOLD) &
+            (df['mar_behavior'] < self.CLOSED_MOUTH_THRESHOLD) &
+            (df['ear_behavior'] >= self.EAR_THRESHOLD) &
+            (df['pitch_behavior'] > self.PITCH_THRESHOLD)
         )
         df.loc[alert_condition, 'label'] = 0
 
+        # 2. Classe 2: Sono / Sonolência Crítica (PERCLOS alto > 0.38, queda de cabeça < -14° ou boca aberta > 0.08)
         sleep_condition = (
-            (df['perclos'] >= self.PERCLOS_THRESHOLD) |
+            (df['perclos'] >= self.PERCLOS_THRESHOLD) &
+            (df['pitch_behavior'] < self.PITCH_THRESHOLD) |
             (df['mar_behavior'] >= self.YAWN_THRESHOLD) |
-            (df['pitch_behavior'] <= self.HEAD_DROP_THRESHOLD) 
+            (df['mar_behavior'] >= self.CLOSED_MOUTH_THRESHOLD)
         )
-        df.loc[sleep_condition, 'label'] = 2 if self.NUM_CLASSES == 3 else 1
+        df.loc[sleep_condition, 'label'] = 2
+
         return df.dropna(subset=['label']).copy()
     
     def fill_blink_columns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -177,7 +182,7 @@ class FeatureEngineering:
         df = self.utils.create_dataframe_from_list(features, columns=["participant_id","minute","frame","ear","mar","pitch","yaw","roll","perclos"] + self.BLINK_COLUMNS)
         df = self.fill_blink_columns(df)
         df = self.adjust_label_column(df)
-        self.utils.transform_dataframe_to_csv(df, 'train', 'features_video')
+        self.utils.transform_dataframe_to_csv(df, 'train', 'features')
 
     def extract_features_from_webcam(self,model,cliente=None) -> None:
         loaded_model = self.utils.load_model(model)
